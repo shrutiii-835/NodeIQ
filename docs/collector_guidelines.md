@@ -1,14 +1,14 @@
 # Collector Guidelines — NodeIQ Collector Design Pattern
 
-**Status:** Design only. This document defines the standard contract every
-collector will follow — no collector exists yet (Phase 3.2B implementation
-still pending). Nothing here runs a Linux command.
+**Status:** `system.py` (Phase 3.2C) is the first collector built following
+this contract — see `docs/system_collector.md`. The remaining eight are
+still scaffolding.
 
 This document is the practical, "how do I write a collector" companion to
 [docs/architecture.md](architecture.md) (the execution infrastructure a
 collector builds on) and [docs/snapshot_schema.md](snapshot_schema.md) (the
 exact shape each collector's output must match). Read all three together
-when collector implementation begins.
+when implementing the next collector.
 
 **Revision note:** this document originally specified `collect() ->
 tuple[dict, list[dict]]`. That has been replaced with `collect(context:
@@ -416,7 +416,7 @@ structure was still justified and nothing crept in beyond it.
   collector to implement an interface beyond "have a function named
   `collect` with this signature." Python doesn't need an ABC to enforce
   that for nine or so collector modules.
-- **No plugin system.** The coordinator (Phase 3.2B) will call each
+- **No plugin system.** The coordinator (Phase 3.2C) will call each
   collector's `collect(context)` directly, by import — there's no dynamic
   discovery, registration, or configuration mechanism, because NodeIQ's
   set of collectors is small and known ahead of time, not something users

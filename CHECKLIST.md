@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.2B — Collector Infrastructure Refinement (complete)
-- **Next Phase:** Phase 3.2C — Collectors (Implementation)
-- **Overall Progress:** 46 / 79 tasks complete (~58%)
-- **Completed Tasks:** 46 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B)
-- **Remaining Tasks:** 33 (1 in Phase 2, all of Phase 3.2C, all of Phases 4–8)
+- **Current Phase:** Phase 3.2C — Collectors (Implementation, in progress — 1 of 10 tasks done)
+- **Next Phase:** Phase 3.2C continues (next: `cpu_memory` collector)
+- **Overall Progress:** 47 / 79 tasks complete (~59%)
+- **Completed Tasks:** 47 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 1 of 10 in Phase 3.2C)
+- **Remaining Tasks:** 32 (1 in Phase 2, 9 in Phase 3.2C, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -85,9 +85,9 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Update `core/coordinator.py` docstring and `PROJECT_RULES.md` Section 9 (documentation only, no logic changed)
 - [x] Add focused unit tests for `CollectorContext`/`CollectorResult`
 
-### Phase 3.2C — Collectors (Implementation, not started)
+### Phase 3.2C — Collectors (Implementation, in progress)
 
-- [ ] System metadata collector (`system`: hostname, OS version, kernel, uptime)
+- [x] System metadata collector (`system`: hostname, operating_system, kernel_version, architecture, uptime_seconds — `os_name`/`os_version` split and `boot_time` deferred, see `docs/system_collector.md`)
 - [ ] CPU + memory collector (`cpu_memory`)
 - [ ] Processes collector (`processes`)
 - [ ] Disk + inodes collector (`disk`)

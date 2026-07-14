@@ -731,3 +731,145 @@ relying on every caller to keep the two in sync by convention.
   `TypedDict` decision for snapshot section shapes; `permissions`
   collector scope; `CONTEXT.md` Section 6 clarifying note (optional);
   Multipass setup docs in `README.md`.
+
+---
+
+## 2026-07-14 — Phase 3.2C: System Collector v1
+
+**Task**
+
+Implement `system.py`, the first real Linux collector, following the
+`CollectorContext` → `collect()` → `CollectorResult` pattern designed in
+Phases 3.2A/3.2B. Scope deliberately narrow — `hostname`,
+`operating_system`, `kernel_version`, `architecture`, `uptime_seconds` —
+to validate the whole collector pattern with real Linux commands and real
+files before building the remaining eight collectors. Per this task's
+scope, no other collector and no scan coordinator implementation were
+written.
+
+**Files created**
+
+- `src/nodeiq/collectors/system.py` — `collect(context) -> CollectorResult`
+  plus private helpers: `_error_entry` (shared error-dict builder),
+  `_run_and_capture` (shared command-wrapper for the three trivial
+  single-line commands), `_get_hostname`/`_get_kernel_version`/
+  `_get_architecture` (via `hostname`, `uname -r`, `uname -m`), and
+  `_get_os_release`/`_get_uptime` with their own pure `_parse_os_release`/
+  `_parse_uptime` helpers (reading `/etc/os-release` and `/proc/uptime`
+  directly).
+- `tests/collectors/test_system.py` — 17 unit tests: pure parsing
+  functions tested with literal sample text; command-based getters tested
+  with `run_command` monkeypatched; file-based getters tested via
+  monkeypatched module-level path constants and `tmp_path`; `collect()`
+  tested end-to-end for both "everything succeeds" and "one field fails,
+  the rest don't."
+- `tests/collectors/test_system_integration.py` — 1 integration test
+  calling the real `collect()` with nothing mocked, skipped automatically
+  unless `platform.system() == "Linux"`.
+- `docs/system_collector.md` — responsibilities, a table of why each data
+  source was chosen, why machine-readable files beat parsing formatted
+  command output (with a real `uptime` vs. `/proc/uptime` comparison), and
+  an explicit "Fields Intentionally Deferred" section.
+
+**Files modified**
+
+- `src/nodeiq/collectors/__init__.py` — updated from "no collectors yet"
+  to note `system.py` is the first.
+- `docs/architecture.md` — status line, diagram caption, and five
+  "Phase 3.2B" mentions left over from the previous task's phase rename
+  corrected to "Phase 3.2C" (one, in "Why the Coordinator Owns Snapshot
+  Assembly," also had an awkward line-wrap left over from a prior edit,
+  fixed as part of the same pass); `nodeiq.collectors` entry in "The
+  Layers, Explained" updated from "empty so far" to describe `system.py`.
+- `docs/collector_guidelines.md` — two remaining "Phase 3.2B" mentions
+  (status line, Quality Check) corrected to "Phase 3.2C"; status line
+  updated to point at `docs/system_collector.md`.
+- `README.md` — folder-structure diagram updated to list
+  `collector_guidelines.md`/`system_collector.md` under `docs/` and to
+  note `system.py` as the first collector.
+- `CHECKLIST.md` — checked off the `system` collector task (noting the
+  deferred fields inline); Progress Summary updated to 47/79 (~59%),
+  Phase 3.2C marked in progress (1 of 10 tasks done).
+- `ROADMAP.md` — Current Milestone updated to describe `system.py` as
+  built and verified; Upcoming Milestone renamed to "Phase 3.2C
+  continued" for the remaining eight collectors.
+- `LEARNING_NOTES.md` — added beginner-friendly explanations of: what
+  `/proc` is, what `/etc/os-release` is, why Linux exposes system
+  information through files, and the difference between machine-readable
+  and human-readable interfaces.
+
+**Reasoning**
+
+Five fields were chosen deliberately narrow, per this task's explicit
+scope — not the full `system` section already defined in
+`docs/snapshot_schema.md` Section 3 (which also has `os_name`/`os_version`
+as two fields and a `boot_time` field this collector doesn't produce).
+Rather than silently matching or silently diverging from the existing
+schema, the gap is documented explicitly in `docs/system_collector.md`'s
+"Fields Intentionally Deferred" section and called out in `CHECKLIST.md` —
+the same approach this project has taken for every previous
+documentation/scope tension (CONTEXT.md Section 6, PROJECT_RULES.md
+Section 8 vs. ADR-013).
+
+Three of the five fields (`hostname`, `kernel_version`, `architecture`)
+come from trivial single-line commands (`hostname`, `uname -r`,
+`uname -m`) where a single `.strip()` is the only "parsing" involved — this
+was deliberately kept inline in a shared `_run_and_capture` helper rather
+than split into a further pure `_parse_*` function per field, since a
+dedicated function for one `.strip()` call would be the over-engineering
+this project's Quality Checks have repeatedly warned against. The other
+two (`operating_system`, `uptime_seconds`) come from files with genuinely
+non-trivial parsing (`/etc/os-release`'s multi-line `KEY=value` format,
+`/proc/uptime`'s two-number line), so those got their own pure, directly
+testable `_parse_os_release`/`_parse_uptime` functions, per
+`docs/collector_guidelines.md`'s "Separation of Command Execution and
+Parsing."
+
+`_get_os_release`/`_get_uptime` read their file paths from module-level
+constants (`_OS_RELEASE_PATH`, `_UPTIME_PATH`) looked up fresh inside the
+function body (not bound as default parameter values) specifically so
+`monkeypatch.setattr(system, "_OS_RELEASE_PATH", ...)` works correctly
+even when the function is called indirectly through `collect()` —
+binding the path as a literal default parameter value would have been
+fixed at module-import time and unaffected by monkeypatching afterward.
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** a Multipass VM
+  (`main-cattle`, Ubuntu 24.04 LTS, matching `DECISIONS.md` ADR-001/002)
+  was already running. Real sample output was pulled from it first
+  (`hostname`, `uname -r`, `uname -m`, `/etc/os-release`, `/proc/uptime`)
+  to confirm the parsing plan before writing code. The `python3-venv`
+  package had to be installed on the VM (`apt install python3.12-venv`)
+  before a venv could be created there. The full project (`src/`, `tests/`,
+  `pyproject.toml`, `requirements.txt`) was then copied to the VM via
+  `multipass transfer`, a venv created, `pytest` installed, and the full
+  30-test suite run for real — all 30 passed, including the integration
+  test actually executing (not skipped) since `platform.system() ==
+  "Linux"` there. The temporary copy was removed from the VM afterward
+  (`rm -rf ~/nodeiq_test`); the VM itself was left running as found.
+- Verified the collector also runs correctly on the local macOS dev
+  machine (used for day-to-day development): `hostname`, `kernel_version`,
+  and `architecture` succeed there too (macOS has all three commands),
+  while `operating_system` and `uptime_seconds` correctly come back as
+  `None` with clear error entries, since macOS has neither
+  `/etc/os-release` nor `/proc/uptime` — demonstrating the graceful
+  per-field degradation working exactly as designed, not just in tests.
+- Re-verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count: 47 complete, 32 remaining, 79 total (~59%).
+
+**Future TODOs**
+
+- Phase 3.2C: implement the `cpu_memory` collector next, following
+  `system.py` as the template (two `/proc` files, `/proc/loadavg` and
+  `/proc/meminfo`, no commands needed at all).
+- Phase 3.2C (later): once at least a couple more collectors exist,
+  implement `coordinator.run_scan()` for real.
+- Phase 3.2C (later, or a dedicated follow-up): consider extending
+  `system.py` to add the deferred `os_name`/`os_version` split and
+  `boot_time`, to fully match `docs/snapshot_schema.md` Section 3.
+- Still open from prior entries: `PROJECT_RULES.md` Section 8 (Logging
+  Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs. `TypedDict`
+  decision for snapshot section shapes; `permissions` collector scope;
+  `CONTEXT.md` Section 6 clarifying note (optional); Multipass setup docs
+  in `README.md`.

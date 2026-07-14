@@ -1,13 +1,13 @@
-# Architecture — Core Execution Infrastructure (Phase 3.1–3.2B)
+# Architecture — Core Execution Infrastructure (Phase 3.1–3.2C)
 
 **Status:** `nodeiq.core` exists and is tested, including the collector
 contract types (`CollectorContext`, `CollectorResult`). `nodeiq.collectors`
-is an empty package waiting for its first collector (implementation still
-pending). No CLI or LLM integration exists yet.
+has its first real collector, `system.py` (Phase 3.2C) — the remaining
+eight are still scaffolding. No CLI or LLM integration exists yet.
 
 This document explains the code built in Phase 3.1 and refined in Phase
-3.2B — the reusable foundation every future collector will run on top of.
-For the *data* architecture (what a snapshot looks like), see
+3.2B — the reusable foundation every collector runs on top of. For the
+*data* architecture (what a snapshot looks like), see
 [snapshot_schema.md](snapshot_schema.md) and
 [data_model_design.md](data_model_design.md). For the practical,
 how-to-write-a-collector contract, see
@@ -77,11 +77,12 @@ at the bottom knows anything about what's above it:
 - `nodeiq.core.runner` depends on Python's `subprocess` and
   `nodeiq.core.result` / `nodeiq.core.exceptions`. It knows nothing about
   collectors, the coordinator, or snapshots.
-- A collector (Phase 3.2B) will depend on `nodeiq.core.runner` to actually
-  run commands, on `nodeiq.core.result` to understand what came back, and
-  on `nodeiq.core.collector` for the `CollectorContext`/`CollectorResult`
-  types. It will know nothing about any other collector, and nothing
-  about the coordinator that will eventually call it.
+- A collector (e.g. `system.py`, Phase 3.2C) depends on `nodeiq.core.runner`
+  to actually run commands, on `nodeiq.core.result` to understand what
+  came back, and on `nodeiq.core.collector` for the
+  `CollectorContext`/`CollectorResult` types. It knows nothing about any
+  other collector, and nothing about the coordinator that will eventually
+  call it.
 - `nodeiq.core.coordinator` (still a placeholder) will be the only module
   that depends on multiple collectors at once.
 
@@ -135,21 +136,22 @@ what every `collect()` function receives and returns:
   `success` property. This replaces the earlier `(data, errors)` tuple
   contract from Phase 3.2A — see `DECISIONS.md` ADR-014 for why.
 
-### `nodeiq.collectors` (empty so far)
+### `nodeiq.collectors` (first collector built)
 
-Will hold one module per snapshot section (`system.py`, `disk.py`, ...),
-each exposing `collect(context: CollectorContext) -> CollectorResult`,
-using `nodeiq.core.runner` (or, for `/proc`-backed data, plain file I/O)
-to gather its own data. Built in Phase 3.2B (implementation), following
-the contract in `docs/collector_guidelines.md`.
+Holds one module per snapshot section (`system.py`, `disk.py`, ...), each
+exposing `collect(context: CollectorContext) -> CollectorResult`, using
+`nodeiq.core.runner` (or, for `/proc`-backed data, plain file I/O) to
+gather its own data. `system.py` (Phase 3.2C) is the first — see
+`docs/system_collector.md`. The remaining eight are still scaffolding,
+following the same contract in `docs/collector_guidelines.md`.
 
 ### `nodeiq.core.coordinator` (placeholder so far)
 
 Will be the single orchestrator that builds one `CollectorContext`, calls
 every collector with it, catches whatever each one raises, and assembles
 the final JSON snapshot from each returned `CollectorResult` — see the
-module's own docstring for the full plan. Built once collectors exist to
-orchestrate (Phase 3.2B).
+module's own docstring for the full plan. Built once enough collectors
+exist to be worth orchestrating (Phase 3.2C, in progress).
 
 ---
 
@@ -175,12 +177,12 @@ running at all.
 
 No individual collector ever sees the full snapshot — each one only ever
 produces its own section, as the `data` field of the `CollectorResult` it
-returns. Only the coordinator (Phase 3.2B) will hold the full picture,
-because assembling the snapshot requires
-knowing about *every* collector at once — something no single collector
-should need to know. This keeps each collector's job small and testable in
-isolation (see PROJECT_RULES.md Section 11, Testing Philosophy) while
-still producing one coherent, complete snapshot at the end.
+returns. Only the coordinator (Phase 3.2C) will hold the full picture,
+because assembling the snapshot requires knowing about *every* collector
+at once — something no single collector should need to know. This keeps
+each collector's job small and testable in isolation (see
+PROJECT_RULES.md Section 11, Testing Philosophy) while still producing
+one coherent, complete snapshot at the end.
 
 This also concentrates two other coordinator-only responsibilities in one
 place, rather than spreading them across every collector: populating
@@ -207,4 +209,4 @@ Centralizing this in `nodeiq.core.runner`:
 - Makes the runner itself independently and thoroughly testable
   (`tests/core/test_runner.py`) without needing any real collector to
   exist yet — which is exactly what Phase 3.1 does, deliberately, before
-  Phase 3.2B builds anything on top of it.
+  Phase 3.2C builds `system.py` (and the rest) on top of it.

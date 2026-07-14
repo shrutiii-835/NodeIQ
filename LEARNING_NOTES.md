@@ -509,3 +509,89 @@ what a function depends on just by reading its signature. This is why
 object usually isn't "no shared information at all," it's "the same
 information, but hidden in a global instead of visible in a function
 signature."
+
+---
+
+## Concepts Introduced in Phase 3.2C (System Collector v1)
+
+### What is `/proc`?
+
+`/proc` is a special directory that doesn't contain real files on disk —
+it's a **virtual filesystem** the Linux kernel generates on the fly,
+letting programs read live information about the running system by
+opening what *look* like ordinary files. `/proc/uptime`, which
+`system.py` reads, isn't stored anywhere; every time you read it, the
+kernel computes a fresh answer right then and hands it back as two
+numbers separated by a space. This is also why numbers in `/proc` files
+change between reads: `cat /proc/uptime` twice in a row gives two
+slightly different values, because the kernel is reporting live state,
+not a saved file.
+
+This matters for NodeIQ specifically because it means reading `/proc`
+files is both **fast** (no disk I/O, no external process — just the
+kernel handing over numbers it already tracks) and **exact** (no risk of
+a stale cached value), which is exactly what a system-diagnostic tool
+wants.
+
+### What is `/etc/os-release`?
+
+`/etc/os-release` is a plain text file, in the real (on-disk) filesystem
+this time, that every modern Linux distribution ships specifically so
+that scripts can reliably ask "which distribution and version is this?"
+without needing to know one distribution's particular quirks. Its format
+is simple and deliberate: one `KEY=value` pair per line, e.g.
+
+```
+NAME="Ubuntu"
+VERSION_ID="24.04"
+PRETTY_NAME="Ubuntu 24.04.4 LTS"
+```
+
+`system.py` reads this file directly and pulls out the `PRETTY_NAME`
+line — the one field explicitly meant to be a ready-to-display, "this is
+what the distribution is" string.
+
+### Why does Linux expose system information through files?
+
+Unix systems (Linux included) follow a long-standing philosophy often
+summarized as "everything is a file" — as many kinds of information and
+interaction as reasonably possible are exposed through the filesystem's
+familiar `open`/`read`/`close` operations, rather than through bespoke,
+one-off APIs that a program would need special code to talk to. `/proc`
+is the clearest example of this: instead of Linux needing a special
+system call just for "how long has this machine been up," it exposes that
+answer as a file any program can read with the exact same code it would
+use to read any other file.
+
+The practical payoff for NodeIQ: `system.py` doesn't need any special
+library or system-specific API to read kernel state — `Path("/proc/
+uptime").read_text()` is the *same* operation Python would use to read any
+ordinary text file on disk, even though what's "in" that file is being
+generated live by the kernel.
+
+### What's the difference between machine-readable and human-readable interfaces?
+
+A **human-readable** interface is designed to be read by a person looking
+at a terminal — it prioritizes being easy to scan at a glance, often
+combining several pieces of information into one nicely formatted line,
+and its exact wording can change between versions without much
+consequence (a human just reads whatever's there). The `uptime` command's
+output (`14:32:07 up 10 days, 3:42, 2 users, load average: ...`) is a good
+example: convenient for a person, but if a program wants just the number
+of seconds of uptime, it has to unpick that sentence apart, hoping the
+exact wording doesn't change on some other system or future version.
+
+A **machine-readable** interface is designed to be read by a program —
+`/proc/uptime`'s `"36564.34 36066.00"` and `/etc/os-release`'s
+`KEY=value` lines are both examples. They prioritize a stable, predictable
+structure over readability; a human can still read them (they're plain
+text), but their whole point is that a program can parse them with
+simple, reliable rules that won't quietly break because someone tweaked a
+sentence's wording.
+
+`docs/system_collector.md` and `docs/collector_guidelines.md`'s "Two Ways
+to Gather Evidence" both come back to this same distinction: whenever a
+machine-readable source exists for a fact NodeIQ needs, prefer it over
+parsing a human-readable command's output for the same fact — it's less
+fragile and doesn't require guessing at another program's formatting
+choices.

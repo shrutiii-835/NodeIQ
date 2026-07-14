@@ -8,28 +8,29 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ## Current Milestone
 
-**Phase 3.2B — Collector Infrastructure Refinement**
+**Phase 3.2C — Collectors (Implementation, in progress)**
 
-The `collect()` contract is refined from a `(data, errors)` tuple to two
-small, named dataclasses in `nodeiq.core.collector`: `CollectorContext`
-(scan-wide info passed into every collector — `scan_start_time`,
-`default_timeout`) and `CollectorResult` (what every collector returns —
-`collector_name`, `data`, `errors`, `duration_ms`, computed `success`).
-`docs/collector_guidelines.md` and `docs/architecture.md` are updated to
-match, and ADR-014 records why. No collector, CLI, or LLM code exists yet.
+The first real Linux collector, `system.py`, is built and verified — both
+with mocked unit tests and a real integration test run against the
+Multipass Ubuntu 24.04 VM (see `docs/system_collector.md`). It gathers
+`hostname`, `operating_system`, `kernel_version`, `architecture`, and
+`uptime_seconds`, using the `CollectorContext` → `collect()` →
+`CollectorResult` pattern designed in Phases 3.2A/3.2B. Eight collectors
+remain (`cpu_memory`, `processes`, `disk`, `services`, `logs`, `network`,
+`scheduled_jobs`, `permissions`), plus the real scan coordinator.
 
 ---
 
 ## Upcoming Milestone
 
-**Phase 3.2C — Collectors (Implementation)**
+**Phase 3.2C continued — Remaining Collectors**
 
-Implement each Linux data collector independently on top of the Phase 3.1
-infrastructure and the refined Phase 3.2A/3.2B contract: system metadata,
-CPU + memory, processes, disk + inodes, services, logs, network, scheduled
-jobs, permissions — plus the real scan coordinator that builds a
-`CollectorContext`, runs them all, and assembles one snapshot from their
-`CollectorResult`s, matching the schema designed in Phase 2.
+Implement each remaining Linux data collector independently, following
+`system.py` as the template: CPU + memory, processes, disk + inodes,
+services, logs, network, scheduled jobs, permissions — plus the real scan
+coordinator that builds a `CollectorContext`, runs them all, and assembles
+one snapshot from their `CollectorResult`s, matching the schema designed
+in Phase 2.
 
 ---
 

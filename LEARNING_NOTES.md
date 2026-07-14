@@ -173,3 +173,86 @@ file placed inside an otherwise-empty folder so Git has *something* to
 track, which keeps the folder itself present in the repository. It has no
 special meaning to Git — it's a community convention, not a built-in
 feature.
+
+---
+
+## Concepts Introduced in Phase 2 (Data Model Design)
+
+### What is a data model?
+
+A **data model** is a plan for how information is organized and related,
+before you write any code that uses it. Think of it like a blueprint for a
+house: the blueprint isn't the house, but every wall, door, and pipe in the
+real house follows what the blueprint decided. NodeIQ's data model is the
+plan for what a "snapshot" of a Linux server looks like — what categories
+of information it contains (`system`, `disk`, `services`, ...), and what
+each category's fields mean — before any collector actually goes and reads
+real data from a real machine.
+
+Designing this first means every future collector, report generator, and
+LLM prompt is building against the same blueprint, instead of everyone
+inventing their own shape for "disk information" and having them all
+disagree.
+
+### What is a schema?
+
+A **schema** is a precise, written-down description of a data model's
+shape: which fields exist, what type each one is (string, number, list of
+objects, ...), and which fields are required versus optional. If the data
+model is the blueprint's overall floor plan, the schema is the detailed
+spec sheet — "this room is 4m × 3m, this door is 90cm wide, this outlet is
+required, that shelf is optional."
+
+`docs/snapshot_schema.md` is NodeIQ's schema: for every section of a
+snapshot, it says exactly what fields exist, what they mean, and whether
+they must always be present. This means a future collector doesn't have to
+guess what shape to produce, and a future report or LLM prompt doesn't have
+to guess what shape to expect.
+
+### Why does design come before implementation?
+
+It's tempting to just start writing a collector and figure out the JSON
+shape as you go. NodeIQ deliberately does the opposite — schema first,
+code later — for a concrete reason: **a design mistake found on paper costs
+almost nothing to fix; the same mistake found after eleven collectors and
+a report generator are already built costs a lot more.**
+
+For example, this phase discovered that CONTEXT.md's informal list of
+"CPU" and "Memory" as two separate collectors didn't cleanly map onto the
+JSON schema's single `cpu_memory` key. Catching that mismatch while writing
+a markdown document took a few extra paragraphs of explanation. Catching it
+*after* writing two separate Python collector files that both tried to
+write to the same JSON key would have meant going back and refactoring
+working code. Designing first turns expensive code changes into cheap
+document edits.
+
+### Why is JSON commonly used for system tools?
+
+Linux system tools that need to exchange structured information with other
+programs (rather than just printing something for a human to read)
+overwhelmingly reach for JSON — many modern Linux commands even support a
+`--json` output flag for exactly this reason. JSON won out over
+alternatives like XML or custom text formats because it's simple (only a
+handful of value types), has a JSON parser/writer built into practically
+every programming language including Python's standard library, and stays
+readable in a plain text editor even without special tooling. NodeIQ uses
+it for the same reasons: it needs to hand structured data from Python code
+(collectors) to another consumer (a report generator, or an LLM), and JSON
+is the simplest format both ends already know how to speak.
+
+### What is a "contract" between software components?
+
+A **contract**, in software design, is an agreement about what one piece of
+code will provide and what another piece of code can rely on — without
+either one needing to know *how* the other actually works internally.
+
+NodeIQ's snapshot schema is exactly this kind of contract: a collector's
+side of the contract is "I will produce a `disk` object shaped exactly like
+`docs/snapshot_schema.md` Section 6 describes." The report generator and
+the LLM's side of the contract is "I can safely assume any snapshot has a
+`disk` object shaped that way, and I don't need to know that it internally
+ran `df -i` under the hood to get it." As long as both sides honor the
+contract, the collector's internals can change freely (a faster parsing
+method, a different command) without breaking anything that reads the
+snapshot — which is exactly the kind of maintainability this project is
+optimizing for.

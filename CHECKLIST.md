@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 1 — Project Architecture (finishing up)
-- **Next Phase:** Phase 2 — Data Model
-- **Overall Progress:** 11 / 59 tasks complete (~19%)
-- **Completed Tasks:** 11 (all in Phase 1)
-- **Remaining Tasks:** 48 (Phases 2–8)
+- **Current Phase:** Phase 2 — Data Model (schema designed; code representation decision still open)
+- **Next Phase:** Phase 3 — Collectors
+- **Overall Progress:** 24 / 59 tasks complete (~41%)
+- **Completed Tasks:** 24 (all of Phase 1, 13 of 14 in Phase 2)
+- **Remaining Tasks:** 35 (1 in Phase 2, all of Phases 3–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -37,19 +37,19 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Phase 2 — Data Model
 
-- [ ] Define the top-level snapshot envelope schema (`timestamp`, `hostname`, `collection_errors`, etc.)
-- [ ] Define `metadata` section schema
-- [ ] Define `system` section schema
-- [ ] Define `cpu_memory` section schema
-- [ ] Define `processes` section schema
-- [ ] Define `disk` section schema
-- [ ] Define `services` section schema
-- [ ] Define `logs` section schema
-- [ ] Define `network` section schema
-- [ ] Define `scheduled_jobs` section schema
-- [ ] Define `permissions` section schema
-- [ ] Define `collection_errors` section schema
-- [ ] Document all section schemas under `docs/`
+- [x] Define the top-level snapshot envelope schema (`timestamp`, `hostname`, `collection_errors`, etc.)
+- [x] Define `metadata` section schema
+- [x] Define `system` section schema
+- [x] Define `cpu_memory` section schema
+- [x] Define `processes` section schema
+- [x] Define `disk` section schema (includes inode usage — see `docs/snapshot_schema.md` Section 14)
+- [x] Define `services` section schema
+- [x] Define `logs` section schema
+- [x] Define `network` section schema
+- [x] Define `scheduled_jobs` section schema
+- [x] Define `permissions` section schema (scope intentionally conservative — flagged as an open question)
+- [x] Define `collection_errors` section schema
+- [x] Document all section schemas under `docs/` (`docs/snapshot_schema.md`, `docs/data_model_design.md`)
 - [ ] Decide on schema representation in code (dataclasses vs. TypedDict)
 
 ## Phase 3 — Collectors

@@ -232,3 +232,128 @@ owner to ask explicitly.
 
 - None new. Existing TODOs from the previous entry (Phase 2 schema design,
   `pytest` timing decision, Multipass setup docs) are still open.
+
+---
+
+## 2026-07-14 — Phase 2: Snapshot Data Model Designed
+
+**Task**
+
+Design the snapshot's top-level JSON schema — the contract every future
+collector (Phase 3) will write to and every future consumer (`report`,
+`ask`) will read from. This is a design-only task: no collectors, CLI code,
+or LLM integration were written, no Linux commands were executed, and no
+Python model classes were implemented, per the Phase 2 scope.
+
+**Files created**
+
+- `docs/snapshot_schema.md` — the complete top-level snapshot schema: one
+  section per top-level key (`metadata`, `system`, `cpu_memory`,
+  `processes`, `disk`, `services`, `logs`, `network`, `scheduled_jobs`,
+  `permissions`, `collection_errors`), each with its purpose, description,
+  responsible collector, consuming report(s), mandatory/optional status,
+  and a placeholder example structure. Also includes a Design Review
+  (quality self-check) and a written resolution for a mismatch between
+  CONTEXT.md's collector list (Section 6) and its JSON envelope (Section
+  7).
+- `docs/data_model_design.md` — the philosophy behind the schema: why JSON,
+  why snapshot-first matters for the data model specifically, why
+  collectors don't depend on each other, why every section has exactly one
+  owning collector, how the schema helps the LLM and maintainability, and
+  future extensibility considerations.
+
+**Files modified**
+
+- `CHECKLIST.md` — checked off 13 of 14 Phase 2 tasks (all schema-design
+  tasks); left "decide on schema representation in code (dataclasses vs.
+  TypedDict)" unchecked, since that's an implementation decision deferred
+  to the next task; updated the Progress Summary to 24/59 (~41%).
+- `ROADMAP.md` — moved the Current Milestone to Phase 2 (now described as
+  schema-designed, one decision open) and the Upcoming Milestone to Phase
+  3; added a Phase 1 summary to the previously empty "Eventually Completed"
+  section; removed a duplicate description of Phase 3 in the Long-Term
+  Milestones list.
+- `LEARNING_NOTES.md` — added beginner-friendly explanations of: what a
+  data model is, what a schema is, why design comes before implementation,
+  why JSON is common for system tools, and what a "contract" between
+  software components means.
+
+**Reasoning**
+
+`CONTEXT.md` Section 7 already fixed the top-level key set as a hard
+requirement; this task's job was to go one level deeper and decide, for
+each key, exactly what fields it contains, who's responsible for
+populating it, who will consume it, and whether it's always present. Two
+design tensions came up and were resolved explicitly rather than silently:
+
+1. **`cpu_memory` and `disk` each correspond to two informally-listed
+   collectors in CONTEXT.md Section 6** (CPU + Memory; Disk + Inodes), but
+   only one top-level key each in Section 7. Resolved by giving each
+   section exactly one owning collector module with one entry point
+   (`collectors/cpu_memory.py`, `collectors/disk.py`), on the reasoning
+   that CPU/Memory are always read together operationally and Disk/Inodes
+   come from the exact same underlying tool (`df`). This preserves the
+   "every section has a single owner" principle without adding
+   functionally pointless extra top-level keys. Full write-up in
+   `docs/snapshot_schema.md` Section 14 and `docs/data_model_design.md`.
+2. **`permissions` was the vaguest data source in the original project
+   spec** ("filesystem metadata — permissions and ownership," with no
+   specifics). Rather than guessing at a shape that might not match real
+   operational needs, this section was deliberately given the loosest,
+   most conservative placeholder shape and marked **optional** (the only
+   optional section) — explicitly flagged as an open question for Phase 3
+   rather than pretending it's settled.
+
+`metadata` and `collection_errors` were both defined as sections owned by
+the scan coordinator itself, not by any individual collector — `metadata`
+describes the scan process (schema version, timing, which collectors ran),
+while `collection_errors` aggregates every collector's own reported
+failures into one predictable place. This distinction (facts about the
+scan vs. facts about the machine vs. failures during collection) is the
+core of what makes the schema self-describing enough for both human
+reports and LLM prompts to rely on without ambiguity.
+
+No Python package scaffolding (`src/nodeiq/models/`) was created. Per
+`PROJECT_RULES.md` Section 1 ("we don't create empty scaffolding ahead of
+need") and this task's explicit instruction not to implement models or
+classes yet, an empty folder with no code would serve no purpose — it's
+deferred to whenever the dataclass-vs-TypedDict decision is made and the
+first model file is actually written.
+
+**Important implementation notes**
+
+- Verified the schema's Design Review section (Section 13 of
+  `docs/snapshot_schema.md`) explicitly against all five quality-check
+  questions posed in this task (extensibility, independence, beginner
+  clarity, data/error separation, dual report+LLM fitness) before
+  finishing.
+- Verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count (`grep -c` for `- [x]` / `- [ ]`): 24 complete, 35 remaining, 59
+  total (~41%).
+- `metadata.schema_version` was set to `"1.0"` (draft) as the mechanism for
+  handling any future breaking change to this schema explicitly rather than
+  silently.
+- This task did not touch `CONTEXT.md` — the collector-count/envelope-key
+  mismatch was resolved by *interpretation* in the new docs, not by editing
+  CONTEXT.md's existing text, since Phase 2 scope was documentation under
+  `docs/` plus the four tracking files, and `PROJECT_RULES.md` Section 14
+  says CONTEXT.md should only be updated when the architecture/philosophy
+  actually changes (this was a clarification, not a change). A small
+  clarifying note in CONTEXT.md is recommended as a future task — see
+  Future TODOs.
+
+**Future TODOs**
+
+- Decide schema representation in code: `dataclasses` vs. `TypedDict` (the
+  one remaining unchecked Phase 2 task in `CHECKLIST.md`).
+- Consider a small clarifying note in `CONTEXT.md` Section 6 noting that
+  `cpu_memory` and `disk` each have one owning collector covering two
+  related data sources — optional, since `docs/snapshot_schema.md` Section
+  14 already documents this in detail.
+- Phase 3: implement `collectors/system.py` first (the simplest collector,
+  good for validating the scan-coordinator pattern end to end).
+- Phase 3: finalize the exact scope of the `permissions` collector (which
+  paths, what counts as noteworthy) — currently an open question per
+  `docs/snapshot_schema.md` Section 11.
+- Existing open TODOs from prior entries (`pytest` timing decision,
+  Multipass setup docs in `README.md`) remain open.

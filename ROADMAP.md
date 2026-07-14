@@ -8,35 +8,34 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ## Current Milestone
 
-**Phase 1 — Project Architecture**
+**Phase 2 — Data Model**
 
-Establish the repository structure and the full documentation set
-(`README.md`, `CONTEXT.md`, `PROJECT_RULES.md`, `LOGS.md`, `CHECKLIST.md`,
-`DECISIONS.md`, `ROADMAP.md`, `LEARNING_NOTES.md`) before any application
-code is written, and get the git repository initialized with a clean first
-commit.
+The snapshot JSON schema is designed: the top-level envelope plus every
+section (`metadata`, `system`, `cpu_memory`, `processes`, `disk`,
+`services`, `logs`, `network`, `scheduled_jobs`, `permissions`,
+`collection_errors`) is documented in `docs/snapshot_schema.md`, with the
+supporting philosophy in `docs/data_model_design.md`. This schema is the
+contract every collector (Phase 3) will write to and every consumer
+(`report`, `ask`) will read from. One decision remains open before this
+phase is fully closed out: whether these shapes are represented in Python
+as `dataclasses` or `TypedDict` (see `CHECKLIST.md` Phase 2).
 
 ---
 
 ## Upcoming Milestone
 
-**Phase 2 — Data Model**
+**Phase 3 — Collectors**
 
-Design the snapshot JSON schema: the top-level envelope plus every section
-(`metadata`, `system`, `cpu_memory`, `processes`, `disk`, `services`,
-`logs`, `network`, `scheduled_jobs`, `permissions`, `collection_errors`).
-This schema becomes the contract every collector (Phase 3) writes to and
-every consumer (`report`, `ask`) reads from.
+Implement each Linux data collector independently: system metadata, CPU +
+memory, processes, disk + inodes, services, logs, network, scheduled jobs,
+permissions — plus the scan coordinator that runs them all and assembles
+one snapshot matching the schema designed in Phase 2.
 
 ---
 
 ## Long-Term Milestones
 
-1. **Phase 3 — Collectors**
-   Implement each Linux data collector independently: system metadata, CPU,
-   memory, processes, disk, inodes, services, logs, network, scheduled
-   jobs, permissions — plus the scan coordinator that runs them all and
-   assembles one snapshot.
+1. **Phase 3 — Collectors** *(see Upcoming Milestone above for detail)*
 
 2. **Phase 4 — Report Generation**
    Turn a snapshot into a clear, human-readable report.
@@ -68,6 +67,9 @@ every consumer (`report`, `ask`) reads from.
 
 ## Eventually Completed
 
-*(This section is intentionally empty. As each milestone above is finished
-and verified, move a short summary of it here — do not delete history from
-the sections above; this is a running record of what's actually shipped.)*
+- **Phase 1 — Project Architecture**: repository structure and full
+  documentation set (`README.md`, `CONTEXT.md`, `PROJECT_RULES.md`,
+  `LOGS.md`, `CHECKLIST.md`, `DECISIONS.md`, `ROADMAP.md`,
+  `LEARNING_NOTES.md`) established; git repository initialized with a
+  clean history. See `LOGS.md` entries dated 2026-07-14 for the full
+  record.

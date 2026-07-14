@@ -167,3 +167,68 @@ silently overwriting the old rule.
   ADR-006) rather than waiting for Phase 8.
 - When Phase 5 setup instructions are written, include the Multipass launch
   steps referenced in `DECISIONS.md` ADR-002.
+
+---
+
+## 2026-07-14 — Removed AI Co-Author Trailer from Git History
+
+**Task**
+
+This is the project owner's personal portfolio project, and the git
+history must show only their own authorship — with no AI co-author
+attribution anywhere in it. The most recent commit
+(`8adaa22470ff5992d97416950fcb40aef6a0c1c1`) contained a
+`Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` trailer, added
+automatically as part of the standard commit process in the previous
+session. That trailer was removed, the corrected commit was force-pushed to
+the existing GitHub remote (`origin/main`), and a new permanent rule was
+added to `PROJECT_RULES.md` to prevent this from happening again.
+
+**Files created**
+
+None.
+
+**Files modified**
+
+- `PROJECT_RULES.md` — added a new bullet to Section 12 (Git Workflow):
+  "Git commits must never include AI co-author trailers or AI attribution.
+  Use only the configured Git user identity."
+- `LOGS.md` — this entry.
+
+**Reasoning**
+
+Since this was the only commit in the repository (a root commit, already
+pushed to `origin/main`), it was safe to rewrite: `git commit --amend` was
+used to replace the commit message with an identical one minus the
+`Co-Authored-By` trailer, which produced a new commit hash
+(`71ac5249435d043e244ac4fa773cea3984e50abc`) but kept the same tree
+contents, author identity (`shrutiii-835 <shruti.jain@calfus.com>`), and
+message body. `git push --force-with-lease` was then used instead of a
+plain `git push --force` — `--force-with-lease` refuses to overwrite the
+remote if it has changed since the local repository last saw it, which
+protects against clobbering someone else's work in between. This was a
+one-time, explicitly requested corrective action, not a change to the
+standing rule that Claude never pushes to a remote on its own initiative
+(`PROJECT_RULES.md` Section 12) — future pushes still require the project
+owner to ask explicitly.
+
+**Important implementation notes**
+
+- Verified via `git log` on `origin/main` after the force-push that the new
+  commit contains no `Co-authored-by` trailer of any kind (checked with a
+  case-insensitive match on `^co-authored-by`).
+- The word "Claude" still appears once in the commit body, but only as
+  ordinary prose describing the project's git workflow ("Update git
+  workflow so Claude commits after each verified task") — not as an
+  attribution trailer. This is expected and not a violation of the new
+  rule, since the rule concerns *attribution*, not any mention of the
+  assistant's name in descriptive text.
+- Because this rewrote a commit that was already pushed, anyone who had
+  already pulled `main` before this fix would need to re-sync (e.g.
+  `git fetch && git reset --hard origin/main`) — not a concern here since
+  the project owner is the sole contributor.
+
+**Future TODOs**
+
+- None new. Existing TODOs from the previous entry (Phase 2 schema design,
+  `pytest` timing decision, Multipass setup docs) are still open.

@@ -220,6 +220,11 @@ Every collector must:
   manually by the project owner unless they explicitly ask otherwise.
 - "Verified" means the task's Definition of Done (Section 17) is actually
   satisfied — do not commit partial or unverified work.
+- **Git commits must never include AI co-author trailers or AI
+  attribution.** Use only the configured Git user identity. This is a
+  personal portfolio project, and the git history must reflect the
+  project owner's authorship alone — no `Co-authored-by: Claude`,
+  `Co-authored-by: Anthropic`, or similar trailer, in any commit.
 
 ---
 

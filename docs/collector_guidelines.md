@@ -1,14 +1,20 @@
 # Collector Guidelines — NodeIQ Collector Design Pattern
 
 **Status:** Design only. This document defines the standard contract every
-collector will follow — no collector exists yet (Phase 3.2B). Nothing here
-runs a Linux command or writes any Python code.
+collector will follow — no collector exists yet (Phase 3.2B implementation
+still pending). Nothing here runs a Linux command.
 
 This document is the practical, "how do I write a collector" companion to
 [docs/architecture.md](architecture.md) (the execution infrastructure a
 collector builds on) and [docs/snapshot_schema.md](snapshot_schema.md) (the
 exact shape each collector's output must match). Read all three together
-when Phase 3.2B begins.
+when collector implementation begins.
+
+**Revision note:** this document originally specified `collect() ->
+tuple[dict, list[dict]]`. That has been replaced with `collect(context:
+CollectorContext) -> CollectorResult` — two small dataclasses in
+`nodeiq.core.collector` — for the reasons explained in "The Standard
+Contract" below and in `DECISIONS.md` ADR-014.
 
 ---
 
@@ -37,7 +43,8 @@ Every collector is responsible for, and only for:
 1. Gathering whatever raw evidence it needs, using whichever of the two
    supported methods actually fits the data source (see "Two Ways to
    Gather Evidence" below): running a command via
-   `nodeiq.core.runner.run_command`, or reading a file (most often
+   `nodeiq.core.runner.run_command` (using `context.default_timeout`
+   unless there's a specific reason not to), or reading a file (most often
    somewhere under `/proc`) directly with plain Python file I/O.
 2. Parsing that raw output into the structured shape defined for its
    section in `docs/snapshot_schema.md`.
@@ -47,8 +54,8 @@ Every collector is responsible for, and only for:
 4. Reporting anything that went wrong along the way, in enough detail that
    a human (or the coordinator, or eventually the LLM) can tell what
    couldn't be determined and why.
-5. Returning its result through the standard contract below — nothing
-   more, nothing less.
+5. Measuring its own run time and returning its result through the
+   standard contract below — nothing more, nothing less.
 
 ## What a Collector Must NOT Do
 
@@ -99,12 +106,15 @@ Every collector is responsible for, and only for:
 Every collector follows the same four steps, in the same order:
 
 ```
-collect()  →  run_command()  →  parse  →  validate  →  return structured JSON
+collect(context)  →  run_command() / file read  →  parse  →  validate  →  return CollectorResult
 ```
 
-1. **`collect()`** is the collector's one public entry point — the only
-   function anything outside the module ever calls.
-2. **`run_command()`** (one or more calls) gathers raw evidence from the
+1. **`collect(context)`** is the collector's one public entry point — the
+   only function anything outside the module ever calls. `context` is a
+   `CollectorContext` (see "The Standard Contract" below), giving the
+   collector the scan's start time and default timeout.
+2. **`run_command()`** (one or more calls, passing `context.default_timeout`
+   unless there's a specific reason not to) gathers raw evidence from the
    real system, via `nodeiq.core.runner` — or, for data that lives in a
    file rather than a command's output, a direct file read (see "Two Ways
    to Gather Evidence" below). Either way, this step produces nothing but
@@ -115,7 +125,8 @@ collect()  →  run_command()  →  parse  →  validate  →  return structured
 4. **Validate** sanity-checks the parsed data before it's trusted enough
    to return (e.g., "did every filesystem row actually have a percentage
    field").
-5. **Return** the finished result through the standard contract below.
+5. **Return** the finished result as a `CollectorResult` through the
+   standard contract below.
 
 ### Two Ways to Gather Evidence
 
@@ -127,12 +138,15 @@ the kernel keeps up to date, not something you need `df` or `top` to ask
 for. Both are valid, and a collector picks whichever fits its data source:
 
 - **Running a command** (`ss`, `systemctl`, `crontab -l`, ...) always goes
-  through `nodeiq.core.runner.run_command`, never raw `subprocess`.
+  through `nodeiq.core.runner.run_command`, never raw `subprocess`, passing
+  `context.default_timeout` unless the collector has a specific reason to
+  use a different value.
 - **Reading a file** (most `/proc` entries) is plain Python file I/O
   (e.g. `Path("/proc/loadavg").read_text()`) — there's no subprocess
-  involved at all, so `run_command` doesn't come into it, but the same
-  "catch anticipated failures, never raise" expectation still applies
-  (e.g. the file might not exist, or might not be readable).
+  involved at all, so `run_command` (and `context.default_timeout`)
+  doesn't come into it, but the same "catch anticipated failures, never
+  raise" expectation still applies (e.g. the file might not exist, or
+  might not be readable).
 
 Either way, the step produces only raw text — parsing it is always a
 separate step (see "Separation of Command Execution and Parsing" below).
@@ -142,24 +156,46 @@ separate step (see "Separation of Command Execution and Parsing" below).
 Every collector module exposes exactly one function:
 
 ```python
-def collect() -> tuple[dict, list[dict]]:
-    """Returns (data, errors).
+def collect(context: CollectorContext) -> CollectorResult:
+    """Gather this collector's section of the snapshot.
 
-    `data` matches this collector's section of docs/snapshot_schema.md —
-    as fully as could be determined, possibly partially filled if some
-    (but not all) of the underlying commands failed.
+    `context` carries information shared across the whole scan (see
+    nodeiq.core.collector.CollectorContext) — currently the scan's start
+    time and the default command timeout.
 
-    `errors` is a list of error-detail dicts (see docs/snapshot_schema.md
-    Section 12, collection_errors) — empty if nothing went wrong.
+    Returns a CollectorResult (see nodeiq.core.collector.CollectorResult)
+    whose `data` matches this collector's section of
+    docs/snapshot_schema.md — as fully as could be determined, possibly
+    partially filled if some (but not all) of the underlying commands or
+    file reads failed — and whose `errors` list describes anything that
+    went wrong (empty if nothing did).
     """
 ```
 
-Returning a `(data, errors)` tuple — rather than raising an exception for
-every anticipated failure — is what lets a collector report "I got most of
-this, but here's the one part I couldn't determine" instead of an
-all-or-nothing success/failure. This is a deliberate, minimal choice: a
-plain tuple of two built-in types, not a new class or framework (see the
-Quality Check section).
+`CollectorContext` and `CollectorResult` are two small, plain dataclasses
+defined in `nodeiq.core.collector` — not a base class a collector extends,
+not a framework. See "Why a Structured Result Instead of a Tuple" below
+and `DECISIONS.md` ADR-014 for the reasoning.
+
+### Why a Structured Result Instead of a Tuple
+
+An earlier version of this document specified `collect() -> tuple[dict,
+list[dict]]`. That's replaced with `CollectorResult` for one concrete
+reason: a tuple's positions have no names. `(data, errors)` only means
+"data first, errors second" because everyone remembers the convention;
+nothing stops a typo like swapping the return order, and nothing about the
+type itself explains what each position holds at the call site. A
+`CollectorResult` makes every field self-documenting —
+`result.data`, `result.errors`, `result.duration_ms`,
+`result.collector_name` — readable without needing to remember a
+position-based convention, which matters more as the number of things a
+result carries grows (this version adds `duration_ms`, `collector_name`,
+and a computed `success` on top of the original two).
+
+This still isn't a framework: `CollectorResult` is a plain
+`@dataclass(frozen=True)`, exactly as lightweight as the tuple it replaces
+— just with names attached to its parts, the same way `CommandResult`
+(`nodeiq.core.result`) already does for a single command's outcome.
 
 ---
 
@@ -254,12 +290,15 @@ touching how the command was run.
 - Test every `_parse_*` (and `_validate_*`) helper directly, by passing it
   a literal string of realistic sample output and asserting on the
   structured result. No mocking needed — these are pure functions.
-- Test `collect()` itself by replacing `run_command` with a stand-in
-  (e.g. `monkeypatch` or `unittest.mock.patch`) that returns a
-  hand-constructed `CommandResult`, so tests never depend on the real
-  state of the machine running them — matching `PROJECT_RULES.md` Section
-  11 and how `tests/core/test_runner.py` already avoids relying on
-  Linux-only tools.
+- Test `collect(context)` itself by replacing `run_command` with a
+  stand-in (e.g. `monkeypatch` or `unittest.mock.patch`) that returns a
+  hand-constructed `CommandResult`, and by constructing a `CollectorContext`
+  directly (e.g. `CollectorContext(scan_start_time=datetime.now(timezone.utc))`)
+  — tests never depend on the real state of the machine running them,
+  matching `PROJECT_RULES.md` Section 11 and how `tests/core/test_runner.py`
+  already avoids relying on Linux-only tools. Assert on the returned
+  `CollectorResult`'s fields (`.data`, `.errors`, `.success`) rather than
+  unpacking a tuple.
 - Cover both the happy path (command succeeds, output parses cleanly) and
   failure paths (command missing, non-zero exit, timeout, malformed
   output) for every collector, per `PROJECT_RULES.md` Section 11.
@@ -279,20 +318,29 @@ future `disk` collector as a concrete stand-in.
 ```python
 # src/nodeiq/collectors/disk.py  (illustrative — not a real implementation)
 
+import time
+
+from nodeiq.core.collector import CollectorContext, CollectorResult
 from nodeiq.core.runner import run_command
 
 
-def collect() -> tuple[dict, list[dict]]:
+def collect(context: CollectorContext) -> CollectorResult:
+    start = time.monotonic()
     errors = []
 
-    result = run_command(["df", "-P", "-k"])
+    result = run_command(["df", "-P", "-k"], timeout=context.default_timeout)
     if not result.succeeded:
         errors.append({
             "message": f"df failed: {result.error or result.stderr}",
             "severity": "error",
             "exception_type": None,
         })
-        return {"filesystems": []}, errors
+        return CollectorResult(
+            collector_name="disk",
+            data={"filesystems": []},
+            errors=errors,
+            duration_ms=(time.monotonic() - start) * 1000,
+        )
 
     try:
         filesystems = _parse_df_output(result.stdout)
@@ -302,9 +350,19 @@ def collect() -> tuple[dict, list[dict]]:
             "severity": "error",
             "exception_type": type(exc).__name__,
         })
-        return {"filesystems": []}, errors
+        return CollectorResult(
+            collector_name="disk",
+            data={"filesystems": []},
+            errors=errors,
+            duration_ms=(time.monotonic() - start) * 1000,
+        )
 
-    return {"filesystems": filesystems}, errors
+    return CollectorResult(
+        collector_name="disk",
+        data={"filesystems": filesystems},
+        errors=errors,
+        duration_ms=(time.monotonic() - start) * 1000,
+    )
 
 
 def _parse_df_output(raw_output: str) -> list[dict]:
@@ -316,6 +374,11 @@ def _parse_df_output(raw_output: str) -> list[dict]:
 ```python
 # tests/collectors/test_disk.py  (illustrative — not a real test file)
 
+from datetime import datetime, timezone
+
+from nodeiq.core.collector import CollectorContext
+
+
 def test_parse_df_output_handles_a_normal_row():
     sample = "Filesystem 1024-blocks Used Available Capacity Mounted\n" \
              "/dev/sda1  10000       4000 6000      40%       /\n"
@@ -326,9 +389,13 @@ def test_parse_df_output_handles_a_normal_row():
 
 def test_collect_reports_an_error_when_df_is_missing(monkeypatch):
     monkeypatch.setattr("nodeiq.collectors.disk.run_command", _fake_missing_df)
-    data, errors = collect()
-    assert data == {"filesystems": []}
-    assert len(errors) == 1
+    context = CollectorContext(scan_start_time=datetime.now(timezone.utc))
+
+    result = collect(context)
+
+    assert result.data == {"filesystems": []}
+    assert len(result.errors) == 1
+    assert result.success is False
 ```
 
 ---
@@ -337,25 +404,39 @@ def test_collect_reports_an_error_when_df_is_missing(monkeypatch):
 
 This design was reviewed against the same standard the project holds every
 piece of NodeIQ to: is it as simple as it can be while still being
-correct?
+correct? This review was repeated after refining the contract from a
+tuple to `CollectorContext`/`CollectorResult`, to make sure the added
+structure was still justified and nothing crept in beyond it.
 
 - **No inheritance hierarchies.** Every collector is a plain module with
-  one function, `collect()`. There is no `BaseCollector` class for a
-  collector to extend.
+  one function, `collect(context)`. There is no `BaseCollector` class for
+  a collector to extend, and `CollectorContext`/`CollectorResult` are
+  plain dataclasses with no subclasses.
 - **No abstract base classes.** Nothing in this design requires a
   collector to implement an interface beyond "have a function named
   `collect` with this signature." Python doesn't need an ABC to enforce
-  that for eight or so collector modules.
+  that for nine or so collector modules.
 - **No plugin system.** The coordinator (Phase 3.2B) will call each
-  collector's `collect()` directly, by import — there's no dynamic
+  collector's `collect(context)` directly, by import — there's no dynamic
   discovery, registration, or configuration mechanism, because NodeIQ's
   set of collectors is small and known ahead of time, not something users
   add at runtime.
-- **No unnecessary framework.** The entire contract is: one function, a
-  two-item tuple, and a handful of underscore-prefixed helpers. This is
-  practical for all nine planned collectors (`system`, `cpu_memory`,
-  `processes`, `disk`, `services`, `logs`, `network`, `scheduled_jobs`,
-  `permissions`) without forcing any of them into a shape that doesn't fit
-  — a collector that only needs to read one `/proc` file (no parsing of
-  command-line tool output at all) still fits this pattern exactly as well
-  as one that runs several commands.
+- **No dependency injection.** `CollectorContext` is passed as one plain
+  argument to one plain function — there's no container, no registry
+  resolving what to inject, no framework deciding what a collector
+  receives. A collector's author (and a reader) can see the entire input
+  by reading the function signature.
+- **No unnecessary complexity added by the refinement.** `CollectorContext`
+  and `CollectorResult` are both `@dataclass(frozen=True)` — the exact same
+  amount of machinery as the `CommandResult` already in `core/result.py`.
+  Swapping a two-item tuple for two named dataclasses doesn't introduce a
+  new category of complexity (no framework, no indirection); it only
+  attaches names to values that already existed (`data`, `errors`) and adds
+  two genuinely new, minimal pieces of information (`duration_ms`,
+  `collector_name`) plus a computed `success` property.
+- **Still practical for all nine planned collectors** (`system`,
+  `cpu_memory`, `processes`, `disk`, `services`, `logs`, `network`,
+  `scheduled_jobs`, `permissions`) — a collector that only needs to read
+  one `/proc` file still constructs the same two-field `CollectorResult`
+  as one that runs several commands; nothing about the refinement forces
+  extra structure onto a simple collector.

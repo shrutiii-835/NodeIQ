@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.2A — Collector Design Pattern (complete)
-- **Next Phase:** Phase 3.2B — Collectors (Implementation)
-- **Overall Progress:** 40 / 73 tasks complete (~55%)
-- **Completed Tasks:** 40 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A)
-- **Remaining Tasks:** 33 (1 in Phase 2, all of Phase 3.2B, all of Phases 4–8)
+- **Current Phase:** Phase 3.2B — Collector Infrastructure Refinement (complete)
+- **Next Phase:** Phase 3.2C — Collectors (Implementation)
+- **Overall Progress:** 46 / 79 tasks complete (~58%)
+- **Completed Tasks:** 46 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B)
+- **Remaining Tasks:** 33 (1 in Phase 2, all of Phase 3.2C, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -76,7 +76,16 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Review core infrastructure against the design; reconcile `collect()` return-type documentation (`PROJECT_RULES.md` Section 9, `core/coordinator.py`, `docs/architecture.md`)
 - [x] Add ADR-012 (parsing location) and ADR-013 (no v1 application logging) to `DECISIONS.md`
 
-### Phase 3.2B — Collectors (Implementation, not started)
+### Phase 3.2B — Collector Infrastructure Refinement
+
+- [x] Create `src/nodeiq/core/collector.py` with `CollectorContext` and `CollectorResult` dataclasses
+- [x] Replace the `collect() -> tuple[dict, list[dict]]` contract with `collect(context) -> CollectorResult` in `docs/collector_guidelines.md`
+- [x] Update `docs/architecture.md` diagram and layer explanations for the refined contract
+- [x] Add ADR-014 (structured `CollectorResult` vs. tuple; why `CollectorContext` exists before many options need it)
+- [x] Update `core/coordinator.py` docstring and `PROJECT_RULES.md` Section 9 (documentation only, no logic changed)
+- [x] Add focused unit tests for `CollectorContext`/`CollectorResult`
+
+### Phase 3.2C — Collectors (Implementation, not started)
 
 - [ ] System metadata collector (`system`: hostname, OS version, kernel, uptime)
 - [ ] CPU + memory collector (`cpu_memory`)
@@ -87,7 +96,7 @@ stay listed (unchecked) until their phase is actually worked on.
 - [ ] Network collector (`network`)
 - [ ] Scheduled jobs collector (`scheduled_jobs`: cron + systemd timers)
 - [ ] Permissions collector (`permissions` — scope open, see `docs/snapshot_schema.md` Section 11)
-- [ ] Implement the scan coordinator for real (replaces the Phase 3.1 placeholder): run all collectors independently and assemble one snapshot
+- [ ] Implement the scan coordinator for real (replaces the Phase 3.1 placeholder): build a `CollectorContext`, run all collectors independently, assemble one snapshot from their `CollectorResult`s
 
 ## Phase 4 — Report Generation
 

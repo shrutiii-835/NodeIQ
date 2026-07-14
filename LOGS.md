@@ -607,3 +607,127 @@ during Phase 2.
   for snapshot section shapes; `permissions` collector scope; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-14 — Phase 3.2B: Collector Infrastructure Refinement
+
+**Task**
+
+Refine the collector contract designed in Phase 3.2A before implementing
+any collector: replace `collect() -> tuple[dict, list[dict]]` with
+`collect(context: CollectorContext) -> CollectorResult`, two small
+dataclasses in a new `nodeiq.core.collector` module. This is still a
+design/infrastructure task — no Linux collectors, CLI code, or LLM
+integration were written. This task is itself named "Phase 3.2B" (per the
+instructions that requested it), which collided with the existing
+checklist naming for the collector-implementation phase — resolved by
+renaming that phase to "Phase 3.2C" (see Files Modified below).
+
+**Files created**
+
+- `src/nodeiq/core/collector.py` — `CollectorContext` (`scan_start_time`,
+  `default_timeout`, both `@dataclass(frozen=True)`) and `CollectorResult`
+  (`collector_name`, `data`, `errors`, `duration_ms`, plus a computed
+  `success` property that's `False` only when `errors` contains an
+  `"error"`-severity entry — warnings alone don't count as failure).
+- `tests/core/test_collector.py` — 7 focused tests: context default
+  timeout matches the runner's constant, timeout override, immutability
+  (both dataclasses), and `success` under no errors / warnings-only /
+  error-severity conditions.
+
+**Files modified**
+
+- `docs/collector_guidelines.md` — replaced the tuple contract throughout
+  ("The Standard Contract," the lifecycle diagram, the pseudo-code
+  examples, testing expectations) with `collect(context) ->
+  CollectorResult`; added a new "Why a Structured Result Instead of a
+  Tuple" subsection; added a revision note at the top; updated the Quality
+  Check to explicitly re-verify no inheritance/ABCs/plugin system/DI crept
+  in with the refinement.
+- `docs/architecture.md` — diagram updated to show the coordinator building
+  one `CollectorContext` and each collector returning a `CollectorResult`;
+  added a new "`nodeiq.core.collector`" entry to "The Layers, Explained";
+  updated remaining `(data, errors)`/bare-`dict` mentions and stale
+  "Phase 3.2" references to match.
+- `DECISIONS.md` — added ADR-014: why a structured `CollectorResult` beats
+  a tuple (named fields, room to grow), and why `CollectorContext` is
+  justified now even with only two fields (both already solve a real,
+  current problem — shared timeout default, shared scan start time — not
+  a speculative extension point).
+- `src/nodeiq/core/coordinator.py` — docstring only, no logic changed:
+  updated every mention of the tuple contract to describe
+  `CollectorContext`/`CollectorResult`.
+- `PROJECT_RULES.md` — Section 9, items 2, 3, 5, and 8 updated to the new
+  contract and to mention `context.default_timeout`.
+- `CHECKLIST.md` — added "Phase 3.2B — Collector Infrastructure
+  Refinement" (all 6 tasks checked) and renamed the former "Phase 3.2B —
+  Collectors (Implementation)" to "Phase 3.2C" to resolve the naming
+  collision; Progress Summary updated to 46/79 (~58%).
+- `ROADMAP.md` — Current Milestone moved to Phase 3.2B (this task);
+  Upcoming Milestone renamed to Phase 3.2C; added a Phase 3.2B summary to
+  "Eventually Completed."
+- `LEARNING_NOTES.md` — added beginner-friendly explanations of: what a
+  dataclass is, why a result object beats a tuple, why design for
+  reasonable extensibility without over-engineering, and what a context
+  object is.
+
+**Reasoning**
+
+The tuple contract from Phase 3.2A worked, but had a real, concrete
+weakness: `(data, errors)` only means "data first, errors second" by
+convention — nothing about the type itself names or documents that, and
+there was nowhere to attach genuinely useful additional facts (which
+collector produced this, how long it took) without growing the tuple's
+arity or tracking those facts separately, disconnected from the result
+they describe. `CollectorResult` fixes this by naming every field.
+
+`CollectorContext` was added even though it currently carries only two
+fields, because both already solve a concrete, present problem rather
+than anticipating a hypothetical one: every collector already needs *some*
+timeout value for `run_command`, and centralizing it in a context object
+(instead of each collector hardcoding its own default) means a future scan
+mode could change every collector's timeout at once, from one place.
+`scan_start_time` similarly gives every collector one agreed-upon "now"
+for the scan. Both are documented explicitly as "solving a real problem
+now," specifically to distinguish this from adding an unused
+"extensibility" field just in case — which was deliberately *not* done
+(see the Quality Check in `docs/collector_guidelines.md` and ADR-014).
+
+`CollectorResult.success` was implemented as a computed `@property` (not a
+stored constructor field, even though the task's suggested field list
+included it) to mirror `CommandResult.succeeded` (already a property in
+`core/result.py`) and to make an inconsistent state (e.g. `success=True`
+with an error-severity entry present) structurally impossible rather than
+relying on every caller to keep the two in sync by convention.
+
+**Important implementation notes**
+
+- Verified via `PYTHONPATH=src python3 -c "..."` that both dataclasses
+  behave as designed before writing formal tests: default timeout
+  resolution, and `success` under no-errors / warnings-only / has-error
+  conditions.
+- Verified all 12 tests pass (7 new + 5 existing from Phase 3.1) after
+  every documentation-only edit to `coordinator.py`.
+- Swept the repository for stale `tuple[dict, list[dict]]` references
+  after the edits — the only remaining mentions are in `LOGS.md`'s
+  historical Phase 3.2A entry (correctly describing what was true then)
+  and `docs/collector_guidelines.md`'s own revision note (intentional).
+- The Phase 3.2B naming collision (this task self-identified as "Phase
+  3.2B," which was already in use for collector implementation) was
+  resolved by renaming the implementation phase to "Phase 3.2C" — flagged
+  explicitly here rather than silently overwritten, consistent with how
+  this project handles naming/documentation tensions elsewhere (e.g. the
+  CONTEXT.md Section 6 collector-count mismatch from Phase 2).
+
+**Future TODOs**
+
+- Phase 3.2C: implement `collectors/system.py` first, following the
+  now-refined `docs/collector_guidelines.md`, to validate the whole
+  `CollectorContext` → `collect()` → `CollectorResult` → (eventually)
+  coordinator pattern end-to-end.
+- Still open from prior entries: `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `permissions`
+  collector scope; `CONTEXT.md` Section 6 clarifying note (optional);
+  Multipass setup docs in `README.md`.

@@ -8,34 +8,34 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ## Current Milestone
 
-**Phase 3.2A — Collector Design Pattern**
+**Phase 3.2B — Collector Infrastructure Refinement**
 
-The standard contract every collector will implement is fully documented
-in `docs/collector_guidelines.md`: purpose, responsibilities, what a
-collector must never do, the standard lifecycle (`collect()` →
-`run_command()` → parse → validate → return), the `(data, errors)` return
-contract, error handling and JSON output expectations, `_parse_*` helper
-conventions, and testing expectations. Two new ADRs record why parsing
-lives in collectors rather than the runner (ADR-012) and why v1 has no
-application logging (ADR-013). No collector, CLI, or LLM code exists yet.
+The `collect()` contract is refined from a `(data, errors)` tuple to two
+small, named dataclasses in `nodeiq.core.collector`: `CollectorContext`
+(scan-wide info passed into every collector — `scan_start_time`,
+`default_timeout`) and `CollectorResult` (what every collector returns —
+`collector_name`, `data`, `errors`, `duration_ms`, computed `success`).
+`docs/collector_guidelines.md` and `docs/architecture.md` are updated to
+match, and ADR-014 records why. No collector, CLI, or LLM code exists yet.
 
 ---
 
 ## Upcoming Milestone
 
-**Phase 3.2B — Collectors (Implementation)**
+**Phase 3.2C — Collectors (Implementation)**
 
 Implement each Linux data collector independently on top of the Phase 3.1
-infrastructure and the Phase 3.2A contract: system metadata, CPU + memory,
-processes, disk + inodes, services, logs, network, scheduled jobs,
-permissions — plus the real scan coordinator that runs them all and
-assembles one snapshot matching the schema designed in Phase 2.
+infrastructure and the refined Phase 3.2A/3.2B contract: system metadata,
+CPU + memory, processes, disk + inodes, services, logs, network, scheduled
+jobs, permissions — plus the real scan coordinator that builds a
+`CollectorContext`, runs them all, and assembles one snapshot from their
+`CollectorResult`s, matching the schema designed in Phase 2.
 
 ---
 
 ## Long-Term Milestones
 
-1. **Phase 3.2B — Collectors** *(see Upcoming Milestone above for detail)*
+1. **Phase 3.2C — Collectors** *(see Upcoming Milestone above for detail)*
 
 2. **Phase 4 — Report Generation**
    Turn a snapshot into a clear, human-readable report.
@@ -81,3 +81,8 @@ assembles one snapshot matching the schema designed in Phase 2.
   contract, lifecycle, and testing expectations documented in
   `docs/collector_guidelines.md`; ADR-012 and ADR-013 recorded. See
   `LOGS.md` for this entry's full record.
+- **Phase 3.2B — Collector Infrastructure Refinement**: `collect()`'s
+  return contract refined from a `(data, errors)` tuple to
+  `CollectorContext`/`CollectorResult` dataclasses in
+  `nodeiq.core.collector`; ADR-014 recorded. See `LOGS.md` for this
+  entry's full record.

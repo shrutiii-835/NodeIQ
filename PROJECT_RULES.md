@@ -158,20 +158,25 @@ Within each group, sort alphabetically.
 Every collector must:
 
 1. Live in its own module under `src/nodeiq/collectors/`.
-2. Expose one clear entry-point function: `collect() -> tuple[dict, list[dict]]`
-   — see `docs/collector_guidelines.md` for the full standard contract.
-3. Return structured data matching its documented schema (see `docs/`).
+2. Expose one clear entry-point function:
+   `collect(context: CollectorContext) -> CollectorResult` (both types
+   defined in `nodeiq.core.collector`) — see `docs/collector_guidelines.md`
+   for the full standard contract.
+3. Return structured data matching its documented schema (see `docs/`), as
+   the `data` field of the returned `CollectorResult`.
 4. Catch all of its own errors and never propagate an exception to the
    scan coordinator.
-5. Report errors distinctly from data, as the `errors` half of `collect()`'s
-   return value (see Section 7, and `docs/collector_guidelines.md`).
+5. Report errors distinctly from data, as the `errors` field of the
+   returned `CollectorResult` (see Section 7, and
+   `docs/collector_guidelines.md`).
 6. Not call or depend on any other collector. Collectors are independent
    and can run in any order.
 7. Avoid parsing fragile command output when a more structured source is
    available (e.g., prefer reading `/proc` files directly over parsing
    `top` output, where practical).
-8. Apply a timeout to any subprocess call, so a hung command can never hang
-   the whole scan (see Phase 7 — Robustness).
+8. Apply a timeout to any subprocess call (using `context.default_timeout`
+   unless there's a specific reason not to), so a hung command can never
+   hang the whole scan (see Phase 7 — Robustness).
 
 ---
 

@@ -429,3 +429,93 @@ implement logging properly, rather than leaving the two documents
 silently disagreeing. If real operational logging is ever added (e.g. for
 diagnosing NodeIQ itself in Phase 7 or later), that would be a new ADR
 superseding this one, not a silent reversal.
+
+---
+
+## ADR-014: Structured `CollectorResult`/`CollectorContext` Instead of a Tuple
+
+**Decision:** How does a collector receive shared scan information, and
+how does it return its outcome to the coordinator — plain tuples and
+positional arguments, or named, structured types?
+
+**Chosen Option:** Two small `@dataclass(frozen=True)` types in
+`nodeiq.core.collector`:
+
+- `CollectorContext` — passed *into* every `collect()` call, carrying
+  `scan_start_time` and `default_timeout`.
+- `CollectorResult` — returned *from* every `collect()` call, carrying
+  `collector_name`, `data`, `errors`, `duration_ms`, and a computed
+  `success` property.
+
+This replaces the Phase 3.2A contract, `collect() -> tuple[dict,
+list[dict]]`, with `collect(context: CollectorContext) -> CollectorResult`.
+
+**Reason:**
+
+*Why a structured result instead of a tuple:* a tuple's positions carry no
+names — `(data, errors)` only means "data first, errors second" by
+convention, and nothing about the type itself documents that at a call
+site, or prevents the two positions from silently being written in the
+wrong order somewhere. As the result grows to include more than the
+original two pieces of information (`duration_ms` and `collector_name`
+are new in this ADR), a tuple would either have to grow more positions
+(worse) or those extra facts would need to live somewhere else entirely,
+disconnected from the data/errors they describe. A dataclass gives every
+piece of information a name, readable at the point of use
+(`result.duration_ms`), without needing to remember a position-based
+convention — the same reasoning that already justified `CommandResult`
+(`nodeiq.core.result`) over a raw tuple of `(returncode, stdout, stderr)`
+back in Phase 3.1.
+
+*Why `CollectorContext` exists even though only two fields are used so
+far:* every collector already independently needs *some* timeout value to
+pass to `run_command`, and right now every collector would otherwise
+hardcode its own default (or import a shared constant with no way to
+override it per-scan). `CollectorContext` gives the coordinator one place
+to hand every collector the same timeout default, changeable for an
+entire scan by constructing a different context — for example, a future
+"quick scan" mode with shorter timeouts, without touching any collector's
+code. `scan_start_time` similarly gives every collector one agreed-upon
+"now" for the scan, rather than each independently calling
+`datetime.now()` and getting slightly different values. Both fields solve
+a real, current problem; neither is speculative.
+
+**Alternatives Considered:**
+- Keep the `(data, errors)` tuple from ADR/Phase 3.2A, and have the
+  coordinator separately track `collector_name` and `duration_ms` outside
+  of what `collect()` itself returns (by timing the call externally and
+  looking up the name from whichever module was being called).
+- A single dict with reserved keys (e.g. `{"data": ..., "errors": ...,
+  "duration_ms": ...}`) instead of a dataclass.
+- Global/module-level configuration for defaults like `default_timeout`,
+  instead of an explicit context object passed as an argument.
+
+**Trade-offs:**
+This is more code than a bare tuple — two dataclass definitions instead of
+zero — and every collector must now measure and report its own
+`duration_ms` and hardcode its own `collector_name` string, rather than
+the coordinator inferring these facts externally. This is accepted because
+the amount of *actual* new complexity is small (the same shape of
+dataclass as the `CommandResult` already in the codebase, plus a few lines
+of self-timing per collector, mirroring how `run_command` already times
+itself) and the payoff (self-documenting fields, one shared context object)
+outweighs it. A dict with reserved keys was rejected because it has all of
+a dataclass's indirection with none of its type-checking or IDE-completion
+benefit. Global configuration for `default_timeout` was rejected because it
+would be implicit, hidden shared state (which `PROJECT_RULES.md` Section 3
+already prohibits: "No global mutable state. Pass data explicitly between
+functions.") — an explicit `CollectorContext` argument keeps the dependency
+visible in every `collect()` signature.
+
+**Future Impact:**
+Every Phase 3.2B collector implements `collect(context: CollectorContext)
+-> CollectorResult`, per the revised `docs/collector_guidelines.md`. The
+future scan coordinator (`nodeiq.core.coordinator`) will construct exactly
+one `CollectorContext` per scan and pass it to every collector, then
+collect each returned `CollectorResult` to assemble the snapshot and
+`collection_errors`. Adding a new field to either dataclass later (with a
+default value, so existing collectors are unaffected) remains trivial —
+this is not expected to need another ADR unless a field is ever removed or
+renamed, which would be a breaking change per the same convention already
+established for the snapshot schema's `metadata.schema_version`
+(`docs/snapshot_schema.md`).

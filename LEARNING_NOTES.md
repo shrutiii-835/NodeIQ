@@ -423,10 +423,89 @@ The reasoning is about avoiding unbuilt machinery nobody needs yet: every
 fact a developer would want from a log line ("did this collector succeed?
 what went wrong?") is *already* required to show up in the snapshot's
 `collection_errors` section, because collectors return that information
-directly through their `(data, errors)` contract. Building and configuring
-a whole separate logging system now would duplicate information that
-already has a home, before anyone has actually needed the extra detail
-logging would add (timing beyond what `metadata` records, adjustable
-verbosity, etc.). If that need becomes real later, `DECISIONS.md` says
-explicitly that adding logging would deserve its own new decision — not a
-quiet reversal of this one.
+directly through their return value. Building and configuring a whole
+separate logging system now would duplicate information that already has
+a home, before anyone has actually needed the extra detail logging would
+add (timing beyond what `metadata` records, adjustable verbosity, etc.).
+If that need becomes real later, `DECISIONS.md` says explicitly that
+adding logging would deserve its own new decision — not a quiet reversal
+of this one.
+
+---
+
+## Concepts Introduced in Phase 3.2B (Collector Infrastructure Refinement)
+
+### What is a dataclass?
+
+A **dataclass** is a Python feature (the `@dataclass` decorator, from the
+standard library's `dataclasses` module) that writes the boring, repetitive
+parts of a "just holds some named values" class for you — the
+constructor, a readable `__repr__`, and equality comparison — so you only
+have to write down the field names and their types. `CollectorResult`, for
+example, is defined by listing four fields (`collector_name`, `data`,
+`errors`, `duration_ms`); Python generates the rest.
+
+Adding `frozen=True` (as every dataclass in NodeIQ so far does) makes
+instances **immutable** — once created, none of their fields can be
+reassigned. This matters here because a `CollectorResult` represents a
+fact about what already happened ("this collector ran and got this
+result") — nothing later in the program has a legitimate reason to change
+that fact, so the type itself prevents it.
+
+### Why use a result object instead of tuples?
+
+A **tuple** is Python's plain, position-based grouping of values — `(x,
+y)`. The Phase 3.2A contract returned `(data, errors)`, a two-item tuple.
+That works, but only as long as everyone remembers "position 0 is data,
+position 1 is errors" — the tuple itself carries no names, so reading
+`result[0]` tells you nothing about what it contains without already
+knowing the convention.
+
+A **result object** (here, `CollectorResult`, a dataclass) replaces
+positions with names: `result.data`, `result.errors`,
+`result.duration_ms`. This has two concrete advantages that mattered
+enough to justify the change: it's self-documenting at the point of use
+(no need to remember "which position was which"), and it can grow to hold
+more information (this refinement added `duration_ms` and
+`collector_name`) without becoming an ever-longer, harder-to-read tuple.
+
+### Why design for reasonable extensibility without over-engineering?
+
+`CollectorContext` currently has only two fields (`scan_start_time`,
+`default_timeout`), and it would be easy to assume it exists "to be
+extensible for the future" in some vague sense. The actual reasoning is
+narrower and worth noticing: both fields already solve a real, present
+problem — every collector already needs a timeout value, and centralizing
+it means a future scan mode could change every collector's timeout at
+once, from one place, rather than editing nine files. Nothing speculative
+was added "just in case" (no placeholder `extra: dict` field, no unused
+hooks) — see `DECISIONS.md` ADR-014 and the Quality Check in
+`docs/collector_guidelines.md`.
+
+The useful distinction: **reasonable extensibility** means choosing a
+shape (a plain dataclass) where adding a genuinely new field later, when a
+real need shows up, is trivial and doesn't break existing code (because
+Python dataclasses support default values for new fields). **Over-engineering**
+would mean building machinery for extensibility you don't have a concrete
+use for yet — a plugin system, a generic "settings bag," an abstract base
+class — none of which NodeIQ needed to add anything meaningful here.
+
+### What is a context object?
+
+A **context object** is a single value bundling together information that
+many different parts of a program need access to, so it can be passed
+around as one thing instead of as several separate parameters (or worse,
+as global variables). `CollectorContext` is exactly this: rather than
+every collector function needing separate `scan_start_time` and
+`default_timeout` parameters (or, worse, reading them from some shared
+global state), they receive one `CollectorContext` object that already
+bundles both.
+
+The key property of a context object done well: it's passed explicitly, as
+an ordinary argument — `collect(context)` — so a reader can see exactly
+what a function depends on just by reading its signature. This is why
+`PROJECT_RULES.md` Section 3's "no global mutable state" rule and
+`CollectorContext`'s design go together: the alternative to a context
+object usually isn't "no shared information at all," it's "the same
+information, but hidden in a global instead of visible in a function
+signature."

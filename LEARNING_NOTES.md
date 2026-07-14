@@ -256,3 +256,103 @@ contract, the collector's internals can change freely (a faster parsing
 method, a different command) without breaking anything that reads the
 snapshot — which is exactly the kind of maintainability this project is
 optimizing for.
+
+---
+
+## Concepts Introduced in Phase 3.1 (Core Execution Infrastructure)
+
+### What is `subprocess`?
+
+Python code can't directly run a Linux command like `df` or `systemctl` —
+those are separate programs, not Python functions. `subprocess` is
+Python's standard-library module for launching another program, waiting
+for it to finish (or not, if you choose), and capturing what it printed
+and how it exited. `nodeiq.core.runner.run_command` is a thin, careful
+wrapper around `subprocess.run` — every future collector will call
+`run_command` instead of using `subprocess` directly, so all the safety
+decisions below only have to be made once.
+
+### Why is `shell=True` avoided?
+
+`subprocess.run` can be told to run your command through a shell
+(`shell=True`) or run the program directly (`shell=False`, the default,
+and what NodeIQ always uses). Running through a shell means a *second*
+program (`/bin/sh`) reads your command as text and interprets things like
+spaces, quotes, `$VARIABLES`, `;`, and `|` before your actual program ever
+runs. If any part of that text came from somewhere untrusted (a filename,
+a config value, eventually maybe user input), the shell can be tricked
+into running something you never intended — this class of bug is called
+**shell injection**.
+
+Passing the command as a list (`["df", "-h"]`) instead of a single string
+(`"df -h"`) and using `shell=False` skips the shell entirely — Python hands
+the program its arguments directly, with no text interpretation step in
+between. There's simply no shell present to trick, which is why NodeIQ's
+`run_command` requires a list and refuses anything else (see
+`InvalidCommandError`).
+
+### stdout vs. stderr
+
+Every well-behaved command line program actually has *two* separate output
+channels, not one:
+
+- **stdout** ("standard output") — the program's normal, expected output.
+  For `df`, this is the disk usage table.
+- **stderr** ("standard error") — error messages and diagnostics, kept
+  deliberately separate so a program's real output doesn't get
+  contaminated by warnings mixed into the middle of it.
+
+`CommandResult` keeps `stdout` and `stderr` as two separate fields for
+exactly this reason: a collector needs to parse `stdout` as data, and
+separately check `stderr` for anything that hints something went wrong,
+without the two ever being tangled together.
+
+### What is an exit code?
+
+When any program finishes, it reports a single number back to whatever
+launched it, called an **exit code** (or "return code"). By long-standing
+Unix convention, `0` means "everything succeeded," and any non-zero number
+means "something went wrong" (different programs use different non-zero
+numbers to mean different specific problems). `CommandResult.returncode`
+captures this number, and `CommandResult.succeeded` is really just a
+convenience for "was the exit code 0, and did the command run at all,
+without timing out."
+
+### What is a timeout, and why does every command need one?
+
+A **timeout** is a maximum amount of time you're willing to let something
+run before giving up on it. Some Linux commands can hang indefinitely in
+rare situations (a network filesystem that's stopped responding, a
+misbehaving service). Without a timeout, NodeIQ's entire `scan` could
+freeze forever waiting on one stuck command. `run_command` always applies
+a timeout (`DEFAULT_TIMEOUT_SECONDS = 10.0` unless a collector asks for a
+different one); if the command is still running when time's up, Python
+kills it and `run_command` reports back `timed_out=True` instead of
+hanging or crashing.
+
+### What is a "command execution abstraction"?
+
+An **abstraction** just means hiding the messy details of *how* something
+works behind a simple interface for *what* it does. `run_command` is an
+abstraction over `subprocess`: instead of every collector needing to
+remember to set `shell=False`, pass a timeout, catch `TimeoutExpired`,
+catch `FileNotFoundError`, and decide what to do with each — a collector
+just calls `run_command(["some", "command"])` and gets back one simple,
+predictable `CommandResult`, regardless of what actually went right or
+wrong underneath. The complexity still exists, but it exists in exactly
+one place instead of being repeated (and possibly gotten slightly wrong)
+in every collector.
+
+### What is orchestration?
+
+**Orchestration** means coordinating several independent pieces of work so
+they combine into one larger result, without those pieces needing to know
+about each other. NodeIQ's future scan coordinator
+(`nodeiq.core.coordinator`) is an orchestrator: it will call every
+collector, one at a time, and combine their independent results into one
+snapshot — but no individual collector will know the coordinator exists,
+or that any other collector exists. This is the same relationship an
+orchestra conductor has to individual musicians: the conductor combines
+everyone's playing into one performance, but a violinist doesn't need to
+know how to play the trumpet, or even that a trumpet section exists, to
+play their own part correctly.

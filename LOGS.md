@@ -357,3 +357,126 @@ first model file is actually written.
   `docs/snapshot_schema.md` Section 11.
 - Existing open TODOs from prior entries (`pytest` timing decision,
   Multipass setup docs in `README.md`) remain open.
+
+---
+
+## 2026-07-14 — Phase 3.1: Core Execution Infrastructure
+
+**Task**
+
+Build the reusable execution foundation every future collector will run on
+top of: a safe command runner, its result type, minimal project-specific
+exceptions, and a documented (not implemented) scan coordinator placeholder.
+Introduce `pytest` and write focused tests for the runner. This closes the
+`pytest` timing TODO from earlier entries — added now, in Phase 3, rather
+than waiting for Phase 8. No Linux collectors, CLI, or LLM integration were
+written, per Phase 3.1 scope.
+
+**Files created**
+
+- `src/nodeiq/__init__.py` — package docstring (previously missing; needed
+  now that real code lives under `src/nodeiq/`).
+- `src/nodeiq/core/__init__.py`, `src/nodeiq/core/result.py`,
+  `src/nodeiq/core/exceptions.py`, `src/nodeiq/core/runner.py`,
+  `src/nodeiq/core/coordinator.py` — the execution infrastructure package.
+- `src/nodeiq/collectors/__init__.py` — empty package scaffolding for
+  Phase 3.2's collectors.
+- `tests/core/test_runner.py` — 5 focused tests for the runner.
+- `pyproject.toml` — pytest configuration (`pythonpath = ["src"]` so tests
+  can import `nodeiq` without an editable install).
+- `docs/architecture.md` — diagram, dependency flow, and per-layer
+  explanation of the Phase 3.1 code.
+- `.venv/` (local only, gitignored) — created to install and run `pytest`.
+
+**Files modified**
+
+- `requirements.txt` — added `pytest>=9.1,<10` (was empty).
+- `.gitignore` — added `.pytest_cache/`.
+- `README.md` — updated the folder-structure diagram to include
+  `pyproject.toml`, `docs/architecture.md` and friends, `src/nodeiq/core/`,
+  and `src/nodeiq/collectors/`; updated Setup Instructions to include
+  running the test suite.
+- `CHECKLIST.md` — split Phase 3 into "Phase 3.1 — Core Execution
+  Infrastructure" (all 7 tasks checked) and "Phase 3.2 — Collectors" (all
+  unchecked, and updated to match the Phase 2 schema decisions —
+  `cpu_memory` and `disk` each listed as one collector, not two); Progress
+  Summary updated to 31/64 (~48%).
+- `ROADMAP.md` — Current Milestone moved to Phase 3.1 (complete); Upcoming
+  Milestone moved to Phase 3.2.
+- `LEARNING_NOTES.md` — added beginner-friendly explanations of:
+  `subprocess`, why `shell=True` is avoided, stdout vs. stderr, exit codes,
+  timeouts, command execution abstraction, and orchestration.
+
+**Reasoning**
+
+Every future collector needs to run Linux commands and handle whatever can
+go wrong doing so (missing programs, timeouts, permission errors). Building
+this once, centrally, in `nodeiq.core.runner`, means every collector in
+Phase 3.2 gets the same safety guarantees automatically instead of each
+one re-implementing (and potentially getting slightly wrong) its own
+subprocess handling. This is a direct, concrete application of the
+"collectors don't depend on each other" principle from
+`docs/data_model_design.md`: collectors will depend on this one shared,
+generic layer, never on each other.
+
+`CommandResult` is a small, immutable dataclass rather than a bare dict, so
+every field (`returncode`, `stdout`, `stderr`, `duration_seconds`,
+`timed_out`, `error`) is named and typed. `exceptions.py` was kept to just
+two classes: `NodeIQError` (a base class for future use) and
+`InvalidCommandError` (raised only for a genuine programmer mistake —
+passing something that isn't a list of strings — since that's an API
+misuse, not a system-level failure the runner is designed to absorb).
+
+`coordinator.py` is a documented placeholder, not a real implementation —
+its module docstring records the coordinator's future responsibilities
+(running every collector, assembling the snapshot, owning `metadata` and
+`collection_errors`) in detail, so Phase 3.2 has a clear target without
+this phase pretending collectors already exist to orchestrate.
+
+`pytest` was introduced now rather than waiting for Phase 8, per
+`PROJECT_RULES.md` Section 11 ("added early as a dev-only dependency if
+needed sooner; use judgment and note the decision"). A `.venv` was created
+locally (gitignored) and `pytest` installed into it, matching
+`DECISIONS.md` ADR-007 (`venv` + `pip`). Tests use the currently-running
+Python interpreter itself as the "external command" (`sys.executable`)
+rather than a Linux-only tool like `df`, so the test suite runs
+identically on any OS Python supports — the runner itself is
+general-purpose; only future collectors will be Linux-specific.
+
+**Important implementation notes**
+
+- **Self-review caught a real gap, not just style:** the initial
+  `subprocess.run(..., text=True)` call had no defense against a command
+  printing bytes that aren't valid UTF-8 (a realistic risk for real
+  system/log output), which would have raised `UnicodeDecodeError` and
+  defeated the "never crash the application" requirement. Fixed by adding
+  `errors="replace"`, which substitutes invalid bytes instead of raising —
+  a one-line, low-complexity fix rather than an added exception branch.
+- `FileNotFoundError` is technically a subclass of `OSError`, so it could
+  have been handled by one `except OSError` block — it's deliberately kept
+  as its own, earlier `except` clause so the two failure modes ("the
+  program doesn't exist" vs. "some other OS-level failure launching it")
+  get distinct, more useful `error` messages, per `PROJECT_RULES.md`
+  Section 7's preference for catching specific exceptions.
+- Verified all 5 runner tests pass locally (`python -m pytest`): successful
+  execution, stdout/stderr captured separately, non-zero exit code,
+  timeout handling, and rejection of a non-list command.
+- Verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count: 31 complete, 33 remaining, 64 total (~48%).
+- `src/nodeiq/__init__.py` did not exist before this task (only its
+  subdirectories did) — added now since it's genuinely needed for
+  `nodeiq.core...` imports to work, not scope creep.
+
+**Future TODOs**
+
+- Phase 3.2: implement `collectors/system.py` first, per the previous
+  entry's recommendation — it's the simplest collector and will validate
+  the whole `runner` → collector → (eventually) `coordinator` pattern
+  end-to-end.
+- Phase 3.2: once at least one real collector exists, implement
+  `coordinator.run_scan()` for real, replacing the `NotImplementedError`
+  placeholder.
+- Still open: `dataclasses` vs. `TypedDict` decision for snapshot section
+  shapes (Phase 2's one remaining task); `permissions` collector scope;
+  `CONTEXT.md` Section 6 clarifying note (optional); Multipass setup docs
+  in `README.md`.

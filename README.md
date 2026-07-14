@@ -112,12 +112,18 @@ NodeIQ/
 ├── PROJECT_RULES.md      # Engineering standards and conventions
 ├── LOGS.md               # Append-only development diary
 ├── requirements.txt      # Python dependencies
+├── pyproject.toml        # pytest configuration
 ├── .gitignore
-├── docs/                 # Additional documentation (design notes, schemas)
+├── docs/                 # Design notes, schemas, and architecture docs
+│   ├── snapshot_schema.md
+│   ├── data_model_design.md
+│   └── architecture.md
 ├── snapshots/            # JSON snapshots produced by `nodeiq scan`
 ├── src/
 │   └── nodeiq/           # Application source code (Python package)
-└── tests/                # Automated tests
+│       ├── core/         # Shared execution infrastructure (runner, etc.)
+│       └── collectors/   # One module per snapshot section (Phase 3.2+)
+└── tests/                # Automated tests (pytest), mirroring src/nodeiq/
 ```
 
 ---
@@ -155,7 +161,8 @@ the core pipeline is solid:
 
 ## Setup Instructions (placeholder)
 
-> This section will be filled in once the CLI and dependencies exist (Phase 5+).
+> The `scan`/`report`/`ask` commands don't exist yet (Phase 5+), but the
+> test suite for the code built so far does.
 
 ```bash
 # Clone the repository
@@ -168,6 +175,9 @@ source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Run the test suite
+python -m pytest
 
 # (Future) Run a scan
 python -m nodeiq scan

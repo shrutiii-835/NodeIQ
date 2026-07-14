@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+# Lets tests import "nodeiq" directly from src/ without installing the
+# package first — see PROJECT_RULES.md Section 1 for why the package lives
+# under src/ rather than at the repository root.
+pythonpath = ["src"]
+testpaths = ["tests"]

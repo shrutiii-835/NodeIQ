@@ -8,34 +8,34 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ## Current Milestone
 
-**Phase 2 — Data Model**
+**Phase 3.1 — Core Execution Infrastructure**
 
-The snapshot JSON schema is designed: the top-level envelope plus every
-section (`metadata`, `system`, `cpu_memory`, `processes`, `disk`,
-`services`, `logs`, `network`, `scheduled_jobs`, `permissions`,
-`collection_errors`) is documented in `docs/snapshot_schema.md`, with the
-supporting philosophy in `docs/data_model_design.md`. This schema is the
-contract every collector (Phase 3) will write to and every consumer
-(`report`, `ask`) will read from. One decision remains open before this
-phase is fully closed out: whether these shapes are represented in Python
-as `dataclasses` or `TypedDict` (see `CHECKLIST.md` Phase 2).
+The reusable foundation every collector will run on is built and tested:
+`nodeiq.core.runner` (safe subprocess execution — timeouts, no `shell=True`,
+never raises for a system-level failure), `nodeiq.core.result`
+(`CommandResult`), `nodeiq.core.exceptions` (minimal, genuinely-needed
+exceptions only), and a documented `nodeiq.core.coordinator` placeholder
+describing the future scan orchestrator. `pytest` is now part of the
+project (`docs/architecture.md` explains the design). No collectors, CLI,
+or LLM integration exist yet.
 
 ---
 
 ## Upcoming Milestone
 
-**Phase 3 — Collectors**
+**Phase 3.2 — Collectors**
 
-Implement each Linux data collector independently: system metadata, CPU +
-memory, processes, disk + inodes, services, logs, network, scheduled jobs,
-permissions — plus the scan coordinator that runs them all and assembles
-one snapshot matching the schema designed in Phase 2.
+Implement each Linux data collector independently on top of the Phase 3.1
+infrastructure: system metadata, CPU + memory, processes, disk + inodes,
+services, logs, network, scheduled jobs, permissions — plus the real scan
+coordinator that runs them all and assembles one snapshot matching the
+schema designed in Phase 2.
 
 ---
 
 ## Long-Term Milestones
 
-1. **Phase 3 — Collectors** *(see Upcoming Milestone above for detail)*
+1. **Phase 3.2 — Collectors** *(see Upcoming Milestone above for detail)*
 
 2. **Phase 4 — Report Generation**
    Turn a snapshot into a clear, human-readable report.

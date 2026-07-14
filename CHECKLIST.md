@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 2 — Data Model (schema designed; code representation decision still open)
-- **Next Phase:** Phase 3 — Collectors
-- **Overall Progress:** 24 / 59 tasks complete (~41%)
-- **Completed Tasks:** 24 (all of Phase 1, 13 of 14 in Phase 2)
-- **Remaining Tasks:** 35 (1 in Phase 2, all of Phases 3–8)
+- **Current Phase:** Phase 3.1 — Core Execution Infrastructure (complete)
+- **Next Phase:** Phase 3.2 — Collectors
+- **Overall Progress:** 31 / 64 tasks complete (~48%)
+- **Completed Tasks:** 31 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1)
+- **Remaining Tasks:** 33 (1 in Phase 2, all of Phase 3.2, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -54,18 +54,28 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Phase 3 — Collectors
 
-- [ ] System metadata collector (hostname, OS version, kernel, uptime)
-- [ ] CPU collector
-- [ ] Memory collector
-- [ ] Processes collector
-- [ ] Disk collector
-- [ ] Inodes collector
-- [ ] Services collector
-- [ ] Logs collector
-- [ ] Network collector
-- [ ] Scheduled jobs collector (cron + systemd timers)
-- [ ] Permissions collector
-- [ ] Scan coordinator that runs all collectors independently and assembles one snapshot
+### Phase 3.1 — Core Execution Infrastructure
+
+- [x] Create `src/nodeiq/core/` and `src/nodeiq/collectors/` package structure
+- [x] Implement `CommandResult` (`core/result.py`)
+- [x] Implement project-specific exceptions (`core/exceptions.py`)
+- [x] Implement the command runner (`core/runner.py`) — timeout, stdout/stderr/returncode capture, duration measurement, never raises for a system-level failure
+- [x] Add a documented scan coordinator placeholder (`core/coordinator.py`) — no scanning logic yet
+- [x] Introduce `pytest`; write focused runner tests (success, non-zero exit, timeout)
+- [x] Document the execution architecture (`docs/architecture.md`)
+
+### Phase 3.2 — Collectors (not started)
+
+- [ ] System metadata collector (`system`: hostname, OS version, kernel, uptime)
+- [ ] CPU + memory collector (`cpu_memory`)
+- [ ] Processes collector (`processes`)
+- [ ] Disk + inodes collector (`disk`)
+- [ ] Services collector (`services`)
+- [ ] Logs collector (`logs`)
+- [ ] Network collector (`network`)
+- [ ] Scheduled jobs collector (`scheduled_jobs`: cron + systemd timers)
+- [ ] Permissions collector (`permissions` — scope open, see `docs/snapshot_schema.md` Section 11)
+- [ ] Implement the scan coordinator for real (replaces the Phase 3.1 placeholder): run all collectors independently and assemble one snapshot
 
 ## Phase 4 — Report Generation
 

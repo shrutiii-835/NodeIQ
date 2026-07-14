@@ -107,9 +107,11 @@ failure" guarantee, without having to reimplement any of it.
 ### `nodeiq.collectors` (empty so far)
 
 Will hold one module per snapshot section (`system.py`, `disk.py`, ...),
-each using `nodeiq.core.runner` to gather its own data and returning a
-plain `dict` matching its section of `docs/snapshot_schema.md`. Built in
-Phase 3.2.
+each using `nodeiq.core.runner` to gather its own data and returning
+`(data, errors)` — a plain `dict` matching its section of
+`docs/snapshot_schema.md`, plus a list of anything that went wrong. Built
+in Phase 3.2B, following the contract in `docs/collector_guidelines.md`
+(Phase 3.2A).
 
 ### `nodeiq.core.coordinator` (placeholder so far)
 

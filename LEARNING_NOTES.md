@@ -356,3 +356,77 @@ orchestra conductor has to individual musicians: the conductor combines
 everyone's playing into one performance, but a violinist doesn't need to
 know how to play the trumpet, or even that a trumpet section exists, to
 play their own part correctly.
+
+---
+
+## Concepts Introduced in Phase 3.2A (Collector Design Pattern)
+
+### What is separation of concerns?
+
+**Separation of concerns** means giving each piece of code exactly one job,
+and drawing a clear line between "this part's job" and "that part's job,"
+so a change to one never has to ripple into the other. `docs/
+collector_guidelines.md` applies this in a very concrete way: running a
+command is one concern (handled entirely by `nodeiq.core.runner`), turning
+that command's raw text into structured data is a second, separate concern
+(handled entirely inside each collector's own `_parse_*` helpers), and
+deciding what to do with that structured data — show it in a report, feed
+it to an LLM — is a third concern that doesn't exist yet (Phases 4 and 6).
+None of these three concerns needs to understand how either of the other
+two actually works internally, which is exactly what makes each one safe
+to change, test, or rewrite on its own.
+
+### Why do contracts between modules matter?
+
+A **contract** (introduced in Phase 2's notes) is an agreement about what
+one piece of code provides and what another can rely on. Phase 3.2A's
+whole deliverable is really one contract: every collector promises to
+expose a function called `collect()` that returns exactly a `(data,
+errors)` tuple shaped a specific way. Because that promise is written down
+and identical for all nine planned collectors, the future scan coordinator
+can be written **once**, against that one contract, instead of needing
+special-case code for each collector's own quirks. This is the practical
+payoff of a contract: it turns "the coordinator needs to understand nine
+different collectors" into "the coordinator needs to understand one
+shape, nine times."
+
+### Why is parsing different from execution?
+
+*Executing* a command means asking the operating system to run a program
+and waiting to see what it prints — the result is just text, and neither
+Python nor the command itself knows what that text is supposed to *mean*
+to NodeIQ. *Parsing* means taking that text and turning it into data your
+program can actually reason about (a list of filesystems, a percentage, a
+process ID) — and it requires knowing the specific format one particular
+command happens to use.
+
+Keeping these two jobs in separate functions (per `docs/
+collector_guidelines.md`'s "Separation of Command Execution and Parsing")
+means a parsing function never needs a real command to test — you can hand
+`_parse_df_output` a plain string written directly into a test and check
+what comes out, with no subprocess, no mocking, and no real Linux system
+involved at all. That's a large part of why `docs/collector_guidelines.md`
+requires `_parse_*` helpers to be **pure functions**: same text in, same
+structured data out, every time, with nothing else going on behind the
+scenes.
+
+### Why are we delaying application logging?
+
+"Application logging" means a program keeping its own internal diary —
+using Python's `logging` module to write out lines like "ran `df -h` at
+14:02:03, took 40ms" to a console or log file, mainly so a developer can
+later understand what the program itself was doing. `PROJECT_RULES.md`
+Section 8 sketched out a plan for this early on, but NodeIQ's v1 doesn't
+actually implement it — see `DECISIONS.md` ADR-013.
+
+The reasoning is about avoiding unbuilt machinery nobody needs yet: every
+fact a developer would want from a log line ("did this collector succeed?
+what went wrong?") is *already* required to show up in the snapshot's
+`collection_errors` section, because collectors return that information
+directly through their `(data, errors)` contract. Building and configuring
+a whole separate logging system now would duplicate information that
+already has a home, before anyone has actually needed the extra detail
+logging would add (timing beyond what `metadata` records, adjustable
+verbosity, etc.). If that need becomes real later, `DECISIONS.md` says
+explicitly that adding logging would deserve its own new decision — not a
+quiet reversal of this one.

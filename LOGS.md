@@ -480,3 +480,130 @@ general-purpose; only future collectors will be Linux-specific.
   shapes (Phase 2's one remaining task); `permissions` collector scope;
   `CONTEXT.md` Section 6 clarifying note (optional); Multipass setup docs
   in `README.md`.
+
+---
+
+## 2026-07-14 — Phase 3.2A: Collector Design Pattern
+
+**Task**
+
+Define the standard contract every collector will implement, before
+writing any actual collector. This is a design-only task: no Linux
+collectors, CLI code, or LLM integration were written, per Phase 3.2A
+scope.
+
+**Files created**
+
+- `docs/collector_guidelines.md` — the full collector contract: purpose,
+  responsibilities, what a collector must never do, the standard lifecycle
+  (`collect()` → `run_command()` → parse → validate → return), the
+  `collect() -> tuple[dict, list[dict]]` return contract, separation of
+  command execution and parsing, error handling expectations, JSON output
+  expectations, `_parse_*`/`_validate_*` helper conventions, testing
+  expectations, and an illustrative (non-functional) pseudo-code example
+  based on a hypothetical `disk` collector.
+
+**Files modified**
+
+- `PROJECT_RULES.md` — Section 9 (Collector Implementation Guidelines),
+  items 2 and 5, updated to reflect the `collect() -> tuple[dict,
+  list[dict]]` contract (previously said `collect() -> dict`, written
+  before this contract was formally decided) and to point to
+  `docs/collector_guidelines.md`.
+- `src/nodeiq/core/coordinator.py` — docstring only, no logic changed:
+  updated the "Interaction with collectors" and "Future responsibilities"
+  sections to describe the `(data, errors)` return contract instead of the
+  earlier, less precise `collect() -> dict`.
+- `docs/architecture.md` — one sentence in the `nodeiq.collectors`
+  description updated to mention the `(data, errors)` return shape and
+  reference `docs/collector_guidelines.md`.
+- `DECISIONS.md` — added ADR-012 (parsing belongs in collectors, not the
+  runner) and ADR-013 (no application logging in v1; collector errors
+  live in `collection_errors` instead).
+- `CHECKLIST.md` — split the former "Phase 3.2 — Collectors" into "Phase
+  3.2A — Collector Design Pattern" (all 9 tasks checked) and "Phase 3.2B —
+  Collectors (Implementation)" (unchanged, still unstarted); Progress
+  Summary updated to 40/73 (~55%).
+- `ROADMAP.md` — Current Milestone moved to Phase 3.2A (complete);
+  Upcoming Milestone renamed to Phase 3.2B; added Phase 3.1 and Phase 3.2A
+  summaries to "Eventually Completed."
+- `LEARNING_NOTES.md` — added beginner-friendly explanations of:
+  separation of concerns, why contracts between modules matter, why
+  parsing is different from execution, and why application logging is
+  being delayed.
+
+**Reasoning**
+
+Nine collectors are about to be built (Phase 3.2B), each by essentially
+the same recipe. Writing that recipe down once, and reviewing it
+critically, before the first collector exists, means all nine end up
+consistent with each other by construction, rather than by
+after-the-fact cleanup once small inconsistencies have already crept in —
+the same "design before implementation" reasoning already applied to the
+snapshot schema in Phase 2 (see `LEARNING_NOTES.md`, "Why does design come
+before implementation?").
+
+The central design decision was the `collect() -> tuple[dict, list[dict]]`
+contract. Earlier documentation (`PROJECT_RULES.md` Section 9, written
+during Phase 1, and `core/coordinator.py`'s docstring, written during
+Phase 3.1) both said `collect() -> dict`, without specifying *how* a
+collector would communicate a partial or total failure back to the
+coordinator — `coordinator.py`'s docstring already said "a collector never
+writes directly into `collection_errors` itself; it returns its errors to
+the coordinator," but never said through what mechanism. This task closes
+that gap: a plain two-item tuple, `(data, errors)`, rather than a new
+class, a raised exception for expected failures, or a reserved-key
+convention inside a single dict. This was chosen specifically for being
+the least additional machinery that still lets a collector report "I got
+most of this, but not that part" — directly serving this task's Quality
+Check requirement to avoid unnecessary abstraction.
+
+Two ADRs were added rather than one, despite the task listing both points
+together, because `DECISIONS.md`'s own stated convention is "each entry
+captures one decision" — parsing location and logging strategy are
+unrelated decisions that happen to have been requested in the same
+message, not one decision with two parts.
+
+ADR-013 (no v1 logging) surfaced a real tension with `PROJECT_RULES.md`
+Section 8 (Logging Philosophy), which was written in Phase 1 and already
+describes a logging setup NodeIQ doesn't have and, per this decision,
+won't have in v1. This task's declared scope for file updates didn't
+include `PROJECT_RULES.md` Section 8 specifically (only Section 9 needed a
+factual correction for the return-type mismatch), so rather than silently
+editing Section 8's standing content, the tension is recorded explicitly
+in ADR-013's Future Impact and flagged below as a follow-up — the same
+approach taken for the CONTEXT.md Section 6 collector-count mismatch found
+during Phase 2.
+
+**Important implementation notes**
+
+- Verified the guidelines document's own Quality Check section explicitly
+  against this task's constraint: no inheritance hierarchies, no abstract
+  base classes, no plugin system, no unnecessary framework. The entire
+  contract is one function name, a two-item tuple of built-in types, and a
+  naming convention for private helpers.
+- Verified the `(data, errors)` contract is practical for every one of the
+  nine planned collectors, including the simplest ones (e.g. `system`,
+  which may only need one `/proc` read and no command-output parsing at
+  all) — the contract doesn't force unnecessary structure onto a simple
+  collector.
+- Re-ran the full test suite after the `coordinator.py` docstring edit
+  (docstring-only, no logic changed) to confirm nothing broke: all 5
+  existing runner tests still pass.
+- Verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count: 40 complete, 33 remaining, 73 total (~55%).
+
+**Future TODOs**
+
+- Phase 3.2B: implement `collectors/system.py` first, following
+  `docs/collector_guidelines.md`, to validate the whole pattern
+  end-to-end before the remaining eight collectors.
+- Follow-up: reconcile `PROJECT_RULES.md` Section 8 (Logging Philosophy)
+  with ADR-013's "no v1 logging" decision — either update Section 8 to
+  describe v1's actual behavior, or implement logging properly. Currently
+  the two documents describe different things and that's flagged, not
+  silently resolved.
+- Still open from prior entries: `dataclasses` vs. `TypedDict` decision
+  for snapshot section shapes; `permissions` collector scope; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

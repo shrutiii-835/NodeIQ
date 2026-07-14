@@ -158,11 +158,13 @@ Within each group, sort alphabetically.
 Every collector must:
 
 1. Live in its own module under `src/nodeiq/collectors/`.
-2. Expose one clear entry-point function (e.g. `collect() -> dict`).
+2. Expose one clear entry-point function: `collect() -> tuple[dict, list[dict]]`
+   — see `docs/collector_guidelines.md` for the full standard contract.
 3. Return structured data matching its documented schema (see `docs/`).
 4. Catch all of its own errors and never propagate an exception to the
    scan coordinator.
-5. Report errors distinctly from data (see Section 7).
+5. Report errors distinctly from data, as the `errors` half of `collect()`'s
+   return value (see Section 7, and `docs/collector_guidelines.md`).
 6. Not call or depend on any other collector. Collectors are independent
    and can run in any order.
 7. Avoid parsing fragile command output when a more structured source is

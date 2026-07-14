@@ -334,3 +334,98 @@ explicit updated instructions, Claude commits after each verified,
 significant task, using the commit message conventions already defined in
 `PROJECT_RULES.md` Section 13. Claude still never pushes to a remote unless
 explicitly asked to.
+
+---
+
+## ADR-012: Parsing Location — Collectors, Not the Command Runner
+
+**Decision:** Where does raw command output get turned into structured
+data — inside `nodeiq.core.runner`, or inside each collector?
+
+**Chosen Option:** Every collector parses its own command output, in its
+own private `_parse_*` helper functions (see `docs/collector_guidelines.md`).
+`nodeiq.core.runner.run_command` only ever returns raw, unparsed text.
+
+**Reason:**
+`run_command`'s entire job (see `docs/architecture.md`) is generic: run
+any command safely and hand back exactly what happened, with no idea what
+the output *means*. Parsing is inherently specific to one command's output
+format — parsing `df` looks nothing like parsing `systemctl list-units
+--failed`. Putting parsing in the runner would require it to know about
+every collector's data shape, which breaks the "the runner has no
+knowledge of any specific Linux command" boundary already established when
+`nodeiq.core` was built (Phase 3.1).
+
+**Alternatives Considered:**
+- A generic parser registry in `nodeiq.core` mapping command names to
+  parser functions.
+- Shared parsing utilities in a common `core/parsers.py` module, used by
+  multiple collectors.
+
+**Trade-offs:**
+Keeping parsing entirely inside each collector means some genuinely
+generic patterns (e.g., "parse a simple whitespace-aligned text table")
+could end up duplicated across a few collectors. This is accepted for now:
+plain, obvious, independent code in each collector beats a shared
+abstraction built before it's known whether the duplication is even real —
+this is exactly the "avoid abstraction for its own sake" principle this
+task's own Quality Check asked for. If real, repeated duplication shows up
+across three or more collectors during Phase 3.2B, a small shared helper
+can be extracted *then*, from evidence, rather than designed speculatively
+now.
+
+**Future Impact:**
+Every Phase 3.2B collector will contain its own `_parse_*` helpers (see
+`docs/collector_guidelines.md`). `nodeiq.core.runner` will never gain
+command-specific logic — if a future change requires that, it's a sign the
+architecture needs revisiting, not a small tweak.
+
+---
+
+## ADR-013: No Application Logging in v1 — Errors Live in `collection_errors`
+
+**Decision:** Does NodeIQ configure and use Python's `logging` module
+during v1 development?
+
+**Chosen Option:** No. NodeIQ does not implement application logging in
+v1. Every operational fact about what a collector couldn't determine is
+captured as structured data in the snapshot's `collection_errors` section
+instead (see `docs/snapshot_schema.md` Section 12), returned directly from
+each collector's `collect()` call (see `docs/collector_guidelines.md`).
+
+**Reason:**
+`PROJECT_RULES.md` Section 8 (Logging Philosophy) already anticipated a
+future logging setup, but actually building one (handlers, formatters, log
+levels, log file rotation and location) is complexity NodeIQ's v1 doesn't
+need: every failure a collector can have is already required to be visible
+in the one artifact that actually matters — the snapshot itself. A
+developer debugging a broken collector can read `collection_errors` in the
+resulting snapshot (or a failing test) rather than needing to also
+configure and tail a separate log stream. This mirrors this task's own
+instruction to avoid frameworks and abstractions not yet justified by a
+real need.
+
+**Alternatives Considered:**
+- Implement full `logging` module configuration now, per the existing plan
+  in `PROJECT_RULES.md` Section 8.
+- Use bare `print()` statements for ad hoc debugging during development.
+
+**Trade-offs:**
+Without logging, there's no record of *successful* collector runs, no
+timing/diagnostic detail beyond what `collection_errors` and `metadata`
+already capture, and no adjustable verbosity (DEBUG vs. WARNING) during
+development. This is accepted because v1's actual need — "know what failed
+and why" — is already served by the snapshot itself; a parallel logging
+system would be additional machinery with no immediate user of its output.
+
+**Future Impact:**
+`PROJECT_RULES.md` Section 8 describes NodeIQ's eventual logging plan, not
+its current (v1) state — that section predates this decision and is not
+being edited as part of this ADR, since reconciling it is out of this
+task's declared scope (see `LOGS.md` for this task's file list). This
+tension is flagged here explicitly, and a follow-up task should either
+update Section 8 to describe v1's actual (no-logging) behavior or
+implement logging properly, rather than leaving the two documents
+silently disagreeing. If real operational logging is ever added (e.g. for
+diagnosing NodeIQ itself in Phase 7 or later), that would be a new ADR
+superseding this one, not a silent reversal.

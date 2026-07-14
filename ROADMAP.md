@@ -8,34 +8,34 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ## Current Milestone
 
-**Phase 3.1 — Core Execution Infrastructure**
+**Phase 3.2A — Collector Design Pattern**
 
-The reusable foundation every collector will run on is built and tested:
-`nodeiq.core.runner` (safe subprocess execution — timeouts, no `shell=True`,
-never raises for a system-level failure), `nodeiq.core.result`
-(`CommandResult`), `nodeiq.core.exceptions` (minimal, genuinely-needed
-exceptions only), and a documented `nodeiq.core.coordinator` placeholder
-describing the future scan orchestrator. `pytest` is now part of the
-project (`docs/architecture.md` explains the design). No collectors, CLI,
-or LLM integration exist yet.
+The standard contract every collector will implement is fully documented
+in `docs/collector_guidelines.md`: purpose, responsibilities, what a
+collector must never do, the standard lifecycle (`collect()` →
+`run_command()` → parse → validate → return), the `(data, errors)` return
+contract, error handling and JSON output expectations, `_parse_*` helper
+conventions, and testing expectations. Two new ADRs record why parsing
+lives in collectors rather than the runner (ADR-012) and why v1 has no
+application logging (ADR-013). No collector, CLI, or LLM code exists yet.
 
 ---
 
 ## Upcoming Milestone
 
-**Phase 3.2 — Collectors**
+**Phase 3.2B — Collectors (Implementation)**
 
 Implement each Linux data collector independently on top of the Phase 3.1
-infrastructure: system metadata, CPU + memory, processes, disk + inodes,
-services, logs, network, scheduled jobs, permissions — plus the real scan
-coordinator that runs them all and assembles one snapshot matching the
-schema designed in Phase 2.
+infrastructure and the Phase 3.2A contract: system metadata, CPU + memory,
+processes, disk + inodes, services, logs, network, scheduled jobs,
+permissions — plus the real scan coordinator that runs them all and
+assembles one snapshot matching the schema designed in Phase 2.
 
 ---
 
 ## Long-Term Milestones
 
-1. **Phase 3.2 — Collectors** *(see Upcoming Milestone above for detail)*
+1. **Phase 3.2B — Collectors** *(see Upcoming Milestone above for detail)*
 
 2. **Phase 4 — Report Generation**
    Turn a snapshot into a clear, human-readable report.
@@ -73,3 +73,11 @@ schema designed in Phase 2.
   `LEARNING_NOTES.md`) established; git repository initialized with a
   clean history. See `LOGS.md` entries dated 2026-07-14 for the full
   record.
+- **Phase 3.1 — Core Execution Infrastructure**: `nodeiq.core.runner`,
+  `nodeiq.core.result`, `nodeiq.core.exceptions`, and a documented
+  `nodeiq.core.coordinator` placeholder built and tested; `pytest`
+  introduced. See `LOGS.md`, "Phase 3.1: Core Execution Infrastructure."
+- **Phase 3.2A — Collector Design Pattern**: the standard `collect()`
+  contract, lifecycle, and testing expectations documented in
+  `docs/collector_guidelines.md`; ADR-012 and ADR-013 recorded. See
+  `LOGS.md` for this entry's full record.

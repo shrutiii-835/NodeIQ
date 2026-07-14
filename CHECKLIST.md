@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.1 — Core Execution Infrastructure (complete)
-- **Next Phase:** Phase 3.2 — Collectors
-- **Overall Progress:** 31 / 64 tasks complete (~48%)
-- **Completed Tasks:** 31 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1)
-- **Remaining Tasks:** 33 (1 in Phase 2, all of Phase 3.2, all of Phases 4–8)
+- **Current Phase:** Phase 3.2A — Collector Design Pattern (complete)
+- **Next Phase:** Phase 3.2B — Collectors (Implementation)
+- **Overall Progress:** 40 / 73 tasks complete (~55%)
+- **Completed Tasks:** 40 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A)
+- **Remaining Tasks:** 33 (1 in Phase 2, all of Phase 3.2B, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -64,7 +64,19 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Introduce `pytest`; write focused runner tests (success, non-zero exit, timeout)
 - [x] Document the execution architecture (`docs/architecture.md`)
 
-### Phase 3.2 — Collectors (not started)
+### Phase 3.2A — Collector Design Pattern
+
+- [x] Document collector purpose, responsibilities, and non-responsibilities (`docs/collector_guidelines.md`)
+- [x] Document the standard lifecycle: `collect()` → `run_command()` → parse → validate → return
+- [x] Document separation of command execution and parsing
+- [x] Document error handling expectations (the `(data, errors)` contract)
+- [x] Document JSON output expectations
+- [x] Document helper function conventions (`_parse_*`, `_validate_*`)
+- [x] Document testing expectations for collectors
+- [x] Review core infrastructure against the design; reconcile `collect()` return-type documentation (`PROJECT_RULES.md` Section 9, `core/coordinator.py`, `docs/architecture.md`)
+- [x] Add ADR-012 (parsing location) and ADR-013 (no v1 application logging) to `DECISIONS.md`
+
+### Phase 3.2B — Collectors (Implementation, not started)
 
 - [ ] System metadata collector (`system`: hostname, OS version, kernel, uptime)
 - [ ] CPU + memory collector (`cpu_memory`)

@@ -950,3 +950,81 @@ process instead means "this fact briefly existed and then genuinely
 stopped existing," which isn't a failure to collect anything at all — the
 process really is gone, and the collector's list is still completely
 accurate without it.
+
+---
+
+## Concepts Introduced in Phase 3.6 (Disk + Inodes Collector)
+
+### What is a filesystem?
+
+A **filesystem** is the structure an operating system uses to organize
+raw storage into the files and folders you actually interact with.
+Without one, a disk (or a chunk of memory set aside to act like one)
+would just be an undifferentiated stretch of bytes — the filesystem is
+what turns that into "this is a file called `notes.txt`, it's 400 bytes,
+it's owned by this user, and here's where its data actually lives."
+
+A single Linux machine almost always has several filesystems active at
+once, not just one: a real, disk-backed one for the root partition
+(commonly `ext4`), plus several the kernel creates purely in memory for
+its own bookkeeping (`tmpfs` for `/run` and `/dev/shm`, `efivarfs` for
+UEFI boot settings). `disk.py` treats every one of these as its own row
+in `df`'s output — one entry per filesystem, each with its own capacity
+and inode numbers, because they're genuinely separate from each other
+even though they all show up together on the same machine.
+
+### What is a mount point?
+
+A **mount point** is the folder path where a filesystem is attached into
+the overall directory tree you navigate — it's the answer to "if I `cd`
+here, which filesystem am I actually looking at?" `/` is the mount point
+for the root filesystem; `/boot/efi` is the mount point for a small,
+separate filesystem just for UEFI boot files; `/run` is the mount point
+for an in-memory filesystem the kernel uses for runtime state.
+
+This matters directly for `disk.py`: a single machine can have many
+filesystems, but there's no ambiguity about which one a particular file
+lives on, because every file's path starts under exactly one mount
+point. This is also why `disk.py` merges its two `df` calls **by mount
+point** (`_merge_filesystems`) — it's the one value that reliably and
+uniquely identifies "this is the same filesystem" across two separately-run
+commands.
+
+### What is an inode?
+
+An **inode** is a small, fixed-size record a filesystem keeps for every
+file and directory it contains — not the file's actual content, but
+everything *about* it: who owns it, what permissions it has, how big it
+is, and where its real data blocks are located on disk. Every file and
+directory needs exactly one inode to exist at all.
+
+The detail that matters most operationally: **a filesystem is created
+with a fixed, finite number of inodes**, decided once, when the
+filesystem was first formatted — and that number has nothing to do with
+how many *bytes* of storage the filesystem has. A filesystem sized for
+a million small inodes and a filesystem sized for a hundred million
+behave identically in terms of gigabytes free, but very differently in
+terms of how many individual files they can ever hold.
+
+### Why can a disk be only 40% full and still fail?
+
+This is the single most important operational lesson `disk.py` exists
+to make visible: disk space (bytes) and inode capacity (file count) are
+**two separate, independently exhaustible resources**. A filesystem can
+have plenty of free space by the byte-count measure — say, 40% used —
+while having already used up every one of its inodes, because something
+on that filesystem has been creating a very large number of very small
+files (a classic real-world case: a cache, log, or queue directory that
+writes one tiny file per event and is never cleaned up).
+
+Once a filesystem's inodes are exhausted, **the kernel refuses to create
+any new file or directory on it — even though `df -h` would show
+gigabytes of "available" space** — because creating a file requires an
+inode to describe it, and there are none left to hand out. Checking disk
+space alone (`used_percent`) would never catch this coming; you'd see a
+mostly-empty disk right up until the moment writes start failing with
+"No space left on device," a genuinely confusing error message for a
+disk that isn't full by the metric most people check first. This is
+exactly why `disk.py` tracks `inode_usage_percent` (and the scan-wide
+`highest_inode_usage_percent`) as its own first-class metric, not a
+footnote to byte-based disk usage.

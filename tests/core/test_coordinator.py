@@ -67,12 +67,13 @@ def test_run_scan_executes_every_registered_collector(monkeypatch):
             make_tracking_collector("system"),
             make_tracking_collector("cpu_memory"),
             make_tracking_collector("processes"),
+            make_tracking_collector("disk"),
         ],
     )
 
     coordinator.run_scan()
 
-    assert calls == ["system", "cpu_memory", "processes"]
+    assert calls == ["system", "cpu_memory", "processes", "disk"]
 
 
 def test_run_scan_assembles_data_from_every_collector_under_its_own_name(monkeypatch):
@@ -83,6 +84,7 @@ def test_run_scan_assembles_data_from_every_collector_under_its_own_name(monkeyp
             _succeeding_collector("system", {"hostname": "myhost"}),
             _succeeding_collector("cpu_memory", {"memory_used_bytes": 123}),
             _succeeding_collector("processes", {"process_count": 42}),
+            _succeeding_collector("disk", {"filesystems": []}),
         ],
     )
 
@@ -91,6 +93,7 @@ def test_run_scan_assembles_data_from_every_collector_under_its_own_name(monkeyp
     assert snapshot["system"] == {"hostname": "myhost"}
     assert snapshot["cpu_memory"] == {"memory_used_bytes": 123}
     assert snapshot["processes"] == {"process_count": 42}
+    assert snapshot["disk"] == {"filesystems": []}
 
 
 def test_run_scan_returns_expected_top_level_sections(monkeypatch):
@@ -101,6 +104,7 @@ def test_run_scan_returns_expected_top_level_sections(monkeypatch):
             _succeeding_collector("system", {}),
             _succeeding_collector("cpu_memory", {}),
             _succeeding_collector("processes", {}),
+            _succeeding_collector("disk", {}),
         ],
     )
 
@@ -112,6 +116,7 @@ def test_run_scan_returns_expected_top_level_sections(monkeypatch):
         "system",
         "cpu_memory",
         "processes",
+        "disk",
     }
 
 
@@ -131,6 +136,7 @@ def test_run_scan_aggregates_errors_reported_by_a_collector(monkeypatch):
             _succeeding_collector("system", {"hostname": None}, errors=[error_entry]),
             _succeeding_collector("cpu_memory", {}),
             _succeeding_collector("processes", {}),
+            _succeeding_collector("disk", {}),
         ],
     )
 
@@ -147,6 +153,7 @@ def test_run_scan_collection_errors_is_empty_when_nothing_went_wrong(monkeypatch
             _succeeding_collector("system", {}),
             _succeeding_collector("cpu_memory", {}),
             _succeeding_collector("processes", {}),
+            _succeeding_collector("disk", {}),
         ],
     )
 
@@ -163,6 +170,7 @@ def test_run_scan_continues_and_records_a_crash_when_a_collector_raises(monkeypa
             _crashing_collector("system", RuntimeError("boom")),
             _succeeding_collector("cpu_memory", {"memory_used_bytes": 123}),
             _succeeding_collector("processes", {}),
+            _succeeding_collector("disk", {}),
         ],
     )
 
@@ -186,13 +194,14 @@ def test_run_scan_populates_metadata_fields(monkeypatch):
             _succeeding_collector("system", {"hostname": "myhost"}),
             _succeeding_collector("cpu_memory", {}),
             _succeeding_collector("processes", {}),
+            _succeeding_collector("disk", {}),
         ],
     )
 
     snapshot = coordinator.run_scan()
     metadata = snapshot["metadata"]
 
-    assert metadata["collector_count"] == 3
+    assert metadata["collector_count"] == 4
     assert metadata["nodeiq_version"] == nodeiq_version
     assert metadata["hostname"] == "myhost"
     assert metadata["scan_duration_ms"] >= 0
@@ -209,6 +218,7 @@ def test_run_scan_metadata_hostname_is_none_when_system_data_has_no_hostname(
             _succeeding_collector("system", {}),
             _succeeding_collector("cpu_memory", {}),
             _succeeding_collector("processes", {}),
+            _succeeding_collector("disk", {}),
         ],
     )
 
@@ -225,6 +235,7 @@ def test_run_scan_metadata_hostname_is_none_when_system_collector_crashes(monkey
             _crashing_collector("system", RuntimeError("boom")),
             _succeeding_collector("cpu_memory", {}),
             _succeeding_collector("processes", {}),
+            _succeeding_collector("disk", {}),
         ],
     )
 
@@ -243,6 +254,7 @@ def test_validate_snapshot_passes_when_all_required_sections_are_present():
             "system": {},
             "cpu_memory": {},
             "processes": {},
+            "disk": {},
             "collection_errors": {},
         }
     )

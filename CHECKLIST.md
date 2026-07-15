@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.5B — Process Collector Implementation (complete)
-- **Next Phase:** Phase 3.2C continues (next: `disk` collector)
-- **Overall Progress:** 67 / 96 tasks complete (~70%)
-- **Completed Tasks:** 67 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 3 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B)
-- **Remaining Tasks:** 29 (1 in Phase 2, 6 in Phase 3.2C, all of Phases 4–8)
+- **Current Phase:** Phase 3.6 — Disk & Inodes Collector (complete)
+- **Next Phase:** Phase 3.2C continues (next: `services` collector)
+- **Overall Progress:** 75 / 103 tasks complete (~73%)
+- **Completed Tasks:** 75 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 4 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6)
+- **Remaining Tasks:** 28 (1 in Phase 2, 5 in Phase 3.2C, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -90,7 +90,7 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] System metadata collector (`system`: hostname, operating_system, kernel_version, architecture, uptime_seconds — `os_name`/`os_version` split and `boot_time` deferred, see `docs/system_collector.md`)
 - [x] CPU + memory collector (`cpu_memory`: memory/swap usage from `/proc/meminfo`, load averages from `/proc/loadavg` — CPU utilization percentages deferred; module renamed from `resource.py` to `cpu_memory.py` in Phase 3.4 to match `docs/snapshot_schema.md` Section 4; field-shape divergence — flat byte fields vs. nested kB, no `core_count` — still not reconciled, see `docs/cpu_memory_collector.md`)
 - [x] Processes collector (`processes`: process_count, zombie_count, blocked_process_count (state `D`), top_by_memory — reads only `/proc/<pid>/status`, `cmdline`, `comm`, no `ps`; `stat` deferred; disappearing processes skipped gracefully; see `docs/process_collector.md`)
-- [ ] Disk + inodes collector (`disk`)
+- [x] Disk + inodes collector (`disk`: total_bytes/used_bytes/available_bytes/usage_percent plus inode_total/inode_used/inode_available/inode_usage_percent per filesystem, merged from `df -P -B1` and `df -P -i`; highest_disk_usage_percent/highest_inode_usage_percent computed; field-shape divergence from `docs/snapshot_schema.md` Section 6 not reconciled, see `docs/disk_collector.md`)
 - [ ] Services collector (`services`)
 - [ ] Logs collector (`logs`)
 - [ ] Network collector (`network`)
@@ -123,6 +123,16 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Register `processes` with the coordinator (`_REGISTERED_COLLECTORS`, `_REQUIRED_SECTIONS`)
 - [x] Unit tests (mocked `/proc`) and an integration test verified on the Multipass VM (full 88-test suite passing)
 - [x] Document the collector (`docs/process_collector.md`)
+
+### Phase 3.6 — Disk + Inodes Collector
+
+- [x] Implement `collectors/disk.py`: run `df -P -B1` and `df -P -i`, parse each independently, merge by mount point into one per-filesystem entry
+- [x] Compute scan-wide `highest_disk_usage_percent` and `highest_inode_usage_percent`
+- [x] Handle `-` values (filesystems with no inode concept, e.g. `efivarfs`) gracefully as `None`
+- [x] If one `df` command fails, return whatever the other still produced, plus a structured error — never lose already-gathered data
+- [x] Register `disk` with the coordinator (`_REGISTERED_COLLECTORS`, `_REQUIRED_SECTIONS`)
+- [x] Unit tests (parsing, merge logic, `collect()`) and an integration test verified on the Multipass VM (full 111-test suite passing)
+- [x] Document the collector (`docs/disk_collector.md`)
 
 ## Phase 4 — Report Generation
 

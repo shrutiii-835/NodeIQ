@@ -38,10 +38,10 @@ import time
 from datetime import datetime, timezone
 
 from nodeiq import __version__ as _NODEIQ_VERSION
-from nodeiq.collectors import cpu_memory, processes, system
+from nodeiq.collectors import cpu_memory, disk, processes, system
 from nodeiq.core.collector import CollectorContext
 
-_REGISTERED_COLLECTORS = [system, cpu_memory, processes]
+_REGISTERED_COLLECTORS = [system, cpu_memory, processes, disk]
 """Every collector the coordinator runs, in the order they run. A plain
 list — no registry object, no discovery mechanism, no plugin system.
 Adding a collector to a future scan means adding one line here."""
@@ -51,6 +51,7 @@ _REQUIRED_SECTIONS = (
     "system",
     "cpu_memory",
     "processes",
+    "disk",
     "collection_errors",
 )
 
@@ -68,6 +69,7 @@ def run_scan() -> dict:
             "system": {...},
             "cpu_memory": {...},
             "processes": {...},
+            "disk": {...},
         }
 
     Never writes to disk — returns a plain dict.

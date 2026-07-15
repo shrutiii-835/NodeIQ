@@ -1527,3 +1527,187 @@ question.
   `TypedDict` decision for snapshot section shapes; `permissions`
   collector scope; `CONTEXT.md` Section 6 clarifying note (optional);
   Multipass setup docs in `README.md`.
+
+---
+
+## 2026-07-15 — Phase 3.6: Disk + Inodes Collector
+
+**Task**
+
+Implement the Disk Collector: filesystem capacity and inode usage for
+every mounted filesystem, merged into one entry per filesystem, plus
+scan-wide `highest_disk_usage_percent`/`highest_inode_usage_percent`.
+The fourth real Linux collector, and the first that needs commands
+(`df -P -B1`, `df -P -i`) rather than a `/proc` file, since no single
+kernel-provided file exposes this information in machine-readable form.
+Registered with the coordinator and verified end to end on the
+Multipass VM.
+
+**Files created**
+
+- `src/nodeiq/collectors/disk.py` — `collect(context) -> CollectorResult`
+  plus private helpers: `_error_entry` (matching every prior collector's),
+  `_get_disk_usage`/`_parse_df_output` (runs `df -P -B1`, parses it into
+  a list of per-filesystem dicts), `_get_inode_usage`/
+  `_parse_df_inode_output` (runs `df -P -i`, parses it into a dict keyed
+  by mount point), `_parse_percent`/`_parse_optional_int` (shared by both
+  parsers, handling `df`'s `-` "not applicable" convention as `None`),
+  `_merge_filesystems` (combines the two by mount point), and `_highest`
+  (the scan-wide maximum of a field across every filesystem that has
+  one).
+- `tests/collectors/test_disk.py` — 24 unit tests: `_parse_df_output` and
+  `_parse_df_inode_output` tested with literal sample text (a mount
+  point containing a space, a malformed line, and the real
+  `efivarfs`-style `-` inode case pulled from the VM); `_parse_percent`/
+  `_parse_optional_int` tested for valid values, `-`, and garbage;
+  `_merge_filesystems` tested for a full match and a missing inode
+  entry; `_highest` tested for the normal case, `None`-filtering, an
+  all-`None` list, and an empty list; `collect()` tested end-to-end for
+  the happy path, total disk-usage-command failure, and
+  inode-command-only failure.
+- `tests/collectors/test_disk_integration.py` — 1 integration test
+  calling the real `collect()` with nothing mocked, skipped
+  automatically unless `platform.system() == "Linux"`.
+- `docs/disk_collector.md` — responsibilities; what a filesystem is;
+  what an inode is and why inode exhaustion matters (a filesystem can be
+  mostly empty by space yet unable to create a single new file); why
+  `df` was chosen (no kernel file for this exists, and why `-P` and
+  `-B1` were both added); how the two command outputs are merged; error
+  handling for each partial-failure mode; "A Note on Naming and Schema
+  Alignment" comparing this implementation against
+  `docs/snapshot_schema.md` Section 6; and a Collector Review Checklist.
+
+**Files modified**
+
+- `src/nodeiq/core/coordinator.py` — `_REGISTERED_COLLECTORS` now
+  `[system, cpu_memory, processes, disk]`; `_REQUIRED_SECTIONS` now
+  includes `"disk"`; `run_scan()`'s docstring example updated to show
+  the `"disk"` key.
+- `src/nodeiq/collectors/__init__.py` — updated to note `disk.py` is now
+  built alongside the other three collectors.
+- `tests/core/test_coordinator.py` — every test that monkeypatches
+  `_REGISTERED_COLLECTORS` now includes a fake `"disk"` collector;
+  `collector_count` assertions updated from `3` to `4`.
+- `tests/core/test_coordinator_integration.py` — updated to expect the
+  real `run_scan()` to return a `"disk"` section, `collector_count == 4`,
+  and added assertions on `disk`'s real, sane data (at least one
+  filesystem, `highest_disk_usage_percent` between 0 and 100).
+- `README.md` — folder-structure diagram updated to list
+  `docs/disk_collector.md` and to mention `disk.py`.
+- `CHECKLIST.md` — checked off the `disk` collector task under Phase
+  3.2C (noting what was actually built); added a new "Phase 3.6 — Disk +
+  Inodes Collector" section (all 7 tasks checked); Progress Summary
+  updated to 75/103 (~73%).
+- `ROADMAP.md` — Current Milestone moved to Phase 3.6 (complete);
+  Upcoming Milestone updated to describe the remaining five collectors
+  (`services`, `logs`, `network`, `scheduled_jobs`, `permissions`); added
+  a Phase 3.6 summary to "Eventually Completed."
+- `LEARNING_NOTES.md` — added beginner-friendly explanations of: what a
+  filesystem is, what a mount point is, what an inode is, and why a disk
+  can be only 40% full by space and still fail to write a new file.
+
+**Reasoning**
+
+This is the first collector where `PROJECT_RULES.md` Section 9 (item
+7)'s usual preference — a kernel file over a command — simply doesn't
+apply: there's no `/proc` entry that reports total/used/available bytes
+and inodes for every mounted filesystem the way `/proc/meminfo` does for
+memory. `df` itself is built on the same `statvfs()` system call this
+collector would otherwise have to call directly, so running `df` isn't
+a compromise — it's the same canonical interface any other tool
+(including one written from scratch) would end up using anyway,
+consistent with the task's own stated reasoning.
+
+Two separate `df` invocations were merged rather than one, because `df`
+can't report both capacity and inode usage in a single call. Following
+`docs/collector_guidelines.md`'s "Separation of Command Execution and
+Parsing," each invocation gets its own pure parser
+(`_parse_df_output`/`_parse_df_inode_output`), and a third, separate
+function (`_merge_filesystems`) does only the combining — keeping "parse
+this command's output" and "combine two already-parsed things" as two
+distinct jobs, neither aware of the other's existence.
+
+`-P` was added to both `df` invocations beyond what the task's literal
+"Use: `df -B1`, `df -i`" instruction specified. This isn't scope
+creep — `docs/collector_guidelines.md`'s own illustrative `disk.py`
+pseudocode already establishes `run_command(["df", "-P", "-k"], ...)`
+as this project's expected convention, specifically because `df` can
+wrap a filesystem's row onto two lines when its device name is long
+enough to overflow a column, and this collector's parser assumes
+exactly one line per filesystem. Adding `-P` was necessary for the
+parser to be reliably correct, not just a style preference, and is
+flagged here explicitly per this project's practice of calling out any
+implementation choice a task's literal wording didn't already spell out.
+
+The `-` handling (`_parse_percent`/`_parse_optional_int` returning
+`None` for a literal `-` token) exists because real VM output showed
+`efivarfs` and the `/boot/efi` `vfat` partition reporting `-` for every
+inode field — these filesystems don't support the inode concept at all.
+This is the same "genuinely doesn't apply" vs. "couldn't determine"
+distinction `PROJECT_RULES.md` Section 7 requires everywhere else in
+this project, applied to a new kind of "not applicable" signal (a
+literal dash from the tool itself, rather than a missing file or a
+failed command).
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** real `df -P -B1`
+  and `df -P -i` output was pulled from the Multipass VM
+  (`main-cattle`) *before* writing the parser, confirming both the
+  column layout and the real `efivarfs`/`/boot/efi` `-` inode case. The
+  full project was then copied to the VM (excluding `.git` and `.venv`,
+  which caused SFTP permission errors on a first attempt due to a stale
+  nested transfer from an in-progress prior copy — resolved by building
+  a clean, `rsync`-filtered local copy first and confirming the VM's old
+  copy was fully removed, with a pause to let the removal actually
+  complete, before transferring again) and the full 111-test suite was
+  run for real — all passed, including this collector's own integration
+  test and the coordinator's end-to-end integration test (now covering
+  all four collectors), producing a real, correctly-merged 8-filesystem
+  snapshot with accurate `None` handling for `efivarfs`/`/boot/efi` and
+  `highest_disk_usage_percent`/`highest_inode_usage_percent` computed
+  correctly (60.0/24.0). Saved locally to `snapshots/sample_snapshot.json`
+  (gitignored, not committed) for inspection. The temporary copy was
+  removed from the VM afterward.
+- Verified the collector also degrades gracefully on the local macOS dev
+  machine, whose BSD `df` doesn't support `-B1` at all
+  (`df: invalid option -- B`): `_get_disk_usage` raises `ValueError`,
+  `collect()` returns exactly one `collection_errors` entry, and
+  `filesystems` comes back `[]` with both `highest_*` fields `None` —
+  the same shape of graceful degradation every previous collector
+  already demonstrates for its own platform-specific gap.
+- **The ADR-012 "three or more collectors" duplication threshold,
+  already flagged as crossed in the previous entry, is now even more
+  clearly true.** `_error_entry` is now duplicated verbatim across all
+  four real collectors (`system.py`, `cpu_memory.py`, `processes.py`,
+  `disk.py`). Still not acted on in this task, for the same reason as
+  before — extracting a shared helper wasn't part of this task's
+  explicit scope — but it's now a more pressing, ready-to-do follow-up
+  than it was last time.
+- Verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count (`grep -c` for `- [x]`/`- [ ]`): 75 complete, 28 remaining, 103
+  total (~73%).
+- Swept every touched file's headings (`grep -n '^#'`) to confirm
+  sequential, non-duplicated numbering before finishing.
+
+**Future TODOs**
+
+- Phase 3.2C: implement the `services` collector next, following
+  `system.py`/`cpu_memory.py`/`processes.py`/`disk.py` as templates —
+  the first collector needing an explicit "systemd not found" path per
+  `DECISIONS.md` ADR-010.
+- Now genuinely overdue: extract a shared `_error_entry` helper into
+  `nodeiq.core`, now that all four collectors show the identical
+  duplication (crossed ADR-012's "three or more" threshold two
+  collectors ago).
+- Consider adding `filesystem_type` (e.g. `ext4`) to `disk.py`'s output
+  — would require a third command (`df -T`) or parsing `/proc/mounts`;
+  not part of this task's scope.
+- Still open from prior entries: field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py` vs. `docs/snapshot_schema.md`;
+  `docs/process_collector_design.md`'s remaining Open Design Questions;
+  per-process CPU utilization and `top_by_cpu`; `PROJECT_RULES.md`
+  Section 8 (Logging Philosophy) vs. ADR-013 reconciliation;
+  `dataclasses` vs. `TypedDict` decision for snapshot section shapes;
+  `permissions` collector scope; `CONTEXT.md` Section 6 clarifying note
+  (optional); Multipass setup docs in `README.md`.

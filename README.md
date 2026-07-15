@@ -123,15 +123,16 @@ NodeIQ/
 │   ├── cpu_memory_collector.md
 │   ├── coordinator.md
 │   ├── process_collector_design.md
-│   └── process_collector.md
+│   ├── process_collector.md
+│   └── disk_collector.md
 ├── snapshots/            # JSON snapshots produced by `nodeiq scan`
 ├── src/
 │   └── nodeiq/           # Application source code (Python package)
 │       ├── core/         # Shared execution infrastructure (runner,
 │       │                 # coordinator, etc.)
 │       └── collectors/   # One module per snapshot section — system.py,
-│                         # cpu_memory.py, and processes.py are built;
-│                         # more to come
+│                         # cpu_memory.py, processes.py, and disk.py are
+│                         # built; more to come
 └── tests/                # Automated tests (pytest), mirroring src/nodeiq/
 ```
 

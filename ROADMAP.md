@@ -8,18 +8,20 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ## Current Milestone
 
-**Phase 3.5B — Process Collector Implementation**
+**Phase 3.6 — Disk & Inodes Collector**
 
-The third real Linux collector: `collectors/processes.py` implements the
-design from Phase 3.5A, reading only `/proc/<pid>/status`, `cmdline`, and
-`comm` directly (`ps` is never invoked; `stat` is intentionally
-deferred). It produces `process_count`, `zombie_count`,
-`blocked_process_count`, and the top 10 processes by memory
-(`top_by_memory`, with `owner` resolved from UID). A process that exits
-mid-scan is skipped gracefully, never as a collector-wide error.
-Registered with the coordinator (`_REGISTERED_COLLECTORS`), verified with
-both mocked unit tests and a real end-to-end integration test on the
-Multipass VM (88 tests passing) — see `docs/process_collector.md`.
+The fourth real Linux collector, and the first to need commands instead
+of `/proc` files: `collectors/disk.py` merges `df -P -B1` (byte-precise
+capacity) and `df -P -i` (inode usage) by mount point into one
+per-filesystem entry — `total_bytes`, `used_bytes`, `available_bytes`,
+`usage_percent`, `inode_total`, `inode_used`, `inode_available`,
+`inode_usage_percent` — plus scan-wide `highest_disk_usage_percent` and
+`highest_inode_usage_percent`. A filesystem with no inode concept (e.g.
+`efivarfs`) degrades gracefully to `None` rather than erroring; if either
+`df` command fails, whatever the other produced is still returned.
+Registered with the coordinator, verified with both mocked unit tests
+and a real end-to-end integration test on the Multipass VM (111 tests
+passing) — see `docs/disk_collector.md`.
 
 ---
 
@@ -28,10 +30,10 @@ Multipass VM (88 tests passing) — see `docs/process_collector.md`.
 **Phase 3.2C continued — Remaining Collectors**
 
 Implement each remaining Linux data collector independently, following
-`system.py`, `cpu_memory.py`, and `processes.py` as templates: disk +
-inodes, services, logs, network, scheduled jobs, permissions —
-registering each one with the coordinator (`docs/coordinator.md`) as
-it's built, so `run_scan()`'s snapshot grows one section at a time.
+`system.py`, `cpu_memory.py`, `processes.py`, and `disk.py` as templates:
+services, logs, network, scheduled jobs, permissions — registering each
+one with the coordinator (`docs/coordinator.md`) as it's built, so
+`run_scan()`'s snapshot grows one section at a time.
 
 ---
 
@@ -109,3 +111,9 @@ it's built, so `run_scan()`'s snapshot grows one section at a time.
   coordinator, verified end to end on the Multipass VM. See
   `docs/process_collector.md` and `LOGS.md`, "Phase 3.5B: Process
   Collector Implementation."
+- **Phase 3.6 — Disk & Inodes Collector**: built and verified
+  `collectors/disk.py` — merges `df -P -B1` and `df -P -i` by mount
+  point, computes `highest_disk_usage_percent`/`highest_inode_usage_percent`,
+  registered with the coordinator, verified end to end on the Multipass
+  VM. See `docs/disk_collector.md` and `LOGS.md`, "Phase 3.6: Disk +
+  Inodes Collector."

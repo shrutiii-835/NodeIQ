@@ -1,3 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nodeiq"
+version = "0.1.0"
+description = "Answers natural-language operational questions about a Linux server using real system data."
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.pytest.ini_options]
 # Lets tests import "nodeiq" directly from src/ without installing the
 # package first — see PROJECT_RULES.md Section 1 for why the package lives

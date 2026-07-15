@@ -2818,3 +2818,58 @@ again on the Multipass Ubuntu 24.04 VM (`main-cattle`), where a real
 was written under `snapshots/`, and the printed Summary showed all 9
 sections `available: true, status: "healthy"` with correct headlines
 (e.g. `"Ubuntu 24.04.4 LTS, kernel 6.8.0-134-generic, up 5h 57m"`).
+
+---
+
+## 2026-07-15 — Fix: `nodeiq` Not Installed as a Package (`ModuleNotFoundError`)
+
+**Problem:** running `python dev_summary.py` (or `python3 dev_summary.py`)
+from the project root failed with `ModuleNotFoundError: No module named
+'nodeiq'`.
+
+**Root cause:** `pyproject.toml` had only a `[tool.pytest.ini_options]`
+table with `pythonpath = ["src"]`. That setting is a pytest-specific
+mechanism — it only affects `sys.path` inside a `pytest` run, so the test
+suite could always import `nodeiq` directly from `src/` without the
+package ever being installed. `pyproject.toml` had no `[build-system]`
+or `[project]` table at all, so `nodeiq` had never actually been
+installed into any virtual environment as a real Python package — it
+only ever "worked" inside `pytest`. Any plain `python`/`python3`
+invocation (including `dev_summary.py`) has no equivalent mechanism, so
+it correctly failed to find `nodeiq` on `sys.path`.
+
+(Earlier Multipass VM verifications for Phases 3.8, 4.1B, and this same
+`dev_summary.py` utility had run `pip install -e .` ad hoc before testing
+each time — which happened to succeed only because modern `setuptools`
+auto-discovers a `src/` layout package by directory name when no
+`[project]` table exists. That's real but undocumented, version-
+dependent, implicit behavior, not an intentional, reproducible packaging
+configuration — worth fixing properly rather than continuing to rely on
+it by accident.)
+
+**Fix:** added explicit `[build-system]` and `[project]` tables to
+`pyproject.toml` (`name = "nodeiq"`, `version = "0.1.0"`,
+`requires-python = ">=3.10"`, `build-backend = "setuptools.build_meta"`),
+plus `[tool.setuptools.packages.find] where = ["src"]` to declare the
+`src/` layout explicitly instead of relying on auto-discovery. This makes
+`pip install -e .` an intentional, documented, one-time setup step that
+installs `nodeiq` as a real editable package — after which any
+`python`/`python3` invocation anywhere in the project can `import
+nodeiq` normally, no `sys.path` hacks or `PYTHONPATH` needed. Also added
+`*.egg-info/` to `.gitignore` (the directory `pip install -e .` creates
+under `src/nodeiq.egg-info/` as an install artifact, not source).
+
+**Verified:** `pip install -e .` run in a clean `.venv`; confirmed
+`import nodeiq` resolves to `src/nodeiq/__init__.py`. Ran
+`python3 dev_summary.py` in a deliberately scrubbed environment (`env -i`,
+no `PYTHONPATH` set at all) — the full pipeline (`run_scan()` ->
+`save_snapshot()` -> `summarize_snapshot()` -> printed Summary) completed
+successfully. Full test suite re-run afterward: 260 passed, 10 skipped —
+unaffected, since `pytest`'s own `pythonpath = ["src"]` setting was left
+in place and still works independently of the package being installed.
+
+**Developer workflow change:** a fresh clone now requires a one-time
+`pip install -e .` before running `dev_summary.py` (or any future CLI
+entry point) directly with `python`/`python3`. This does not change how
+tests are run (`pytest` still works with or without the package
+installed, unchanged from every prior phase).

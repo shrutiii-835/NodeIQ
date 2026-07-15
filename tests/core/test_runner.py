@@ -14,7 +14,8 @@ import sys
 import pytest
 
 from nodeiq.core.exceptions import InvalidCommandError
-from nodeiq.core.runner import run_command
+from nodeiq.core.result import CommandResult
+from nodeiq.core.runner import command_failure_message, run_command
 
 
 def test_run_command_success():
@@ -66,3 +67,34 @@ def test_run_command_rejects_a_non_list_command():
     never needing shell=True."""
     with pytest.raises(InvalidCommandError):
         run_command("df -h")
+
+
+# --- command_failure_message ---------------------------------------------------
+#
+# Extracted during the Phase 3.7 refactoring sprint from eleven identical
+# per-collector message-building call sites — see DECISIONS.md ADR-012.
+
+
+def test_command_failure_message_prefers_the_error_field():
+    result = CommandResult(
+        command=["df", "-h"],
+        returncode=None,
+        stdout="",
+        stderr="",
+        duration_seconds=0.01,
+        error="command not found",
+    )
+
+    assert command_failure_message(["df", "-h"], result) == "df -h failed: command not found"
+
+
+def test_command_failure_message_falls_back_to_stripped_stderr():
+    result = CommandResult(
+        command=["df", "-h"],
+        returncode=1,
+        stdout="",
+        stderr="  permission denied  \n",
+        duration_seconds=0.01,
+    )
+
+    assert command_failure_message(["df", "-h"], result) == "df -h failed: permission denied"

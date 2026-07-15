@@ -1,8 +1,11 @@
 # Collector Guidelines — NodeIQ Collector Design Pattern
 
-**Status:** `system.py` (Phase 3.2C) is the first collector built following
-this contract — see `docs/system_collector.md`. The remaining eight are
-still scaffolding.
+**Status:** All nine planned collectors (`system`, `cpu_memory`,
+`processes`, `disk`, `services`, `scheduled_jobs`, `permissions`,
+`network`, `logs`) are built, following this contract — NodeIQ v1's data
+collection layer is complete. Phase 3.7 (the refactoring sprint) then
+extracted three shared helpers into `nodeiq.core` from duplication
+observed across all nine — see "Shared Helpers in `nodeiq.core`" below.
 
 This document is the practical, "how do I write a collector" companion to
 [docs/architecture.md](architecture.md) (the execution infrastructure a
@@ -232,7 +235,10 @@ touching how the command was run.
   whole function.
 - Every error goes into the `errors` list as a dict shaped like
   `docs/snapshot_schema.md` Section 12's `collection_errors` entries:
-  `{"message": str, "severity": "warning" | "error", "exception_type": str | None}`.
+  `{"message": str, "severity": "warning" | "error", "exception_type": str | None}`
+  — build it with `nodeiq.core.errors.error_entry(exc)` rather than
+  constructing the dict by hand; see "Shared Helpers in `nodeiq.core`"
+  below.
 - Never conflate "the system genuinely has none of this" with "we
   couldn't determine this." An empty list because there are truly no
   failed services is valid data with no error entry. An empty list because
@@ -243,6 +249,134 @@ touching how the command was run.
   *other* commands produced, plus one error entry describing what didn't
   work — partial data beats no data, and the error entry ensures nobody
   mistakes the gap for "everything's fine."
+
+---
+
+## Shared Helpers in `nodeiq.core`
+
+By the end of Phase 3.7 (the refactoring sprint), three small pieces of
+logic had shown up independently, verbatim or near-verbatim, across
+enough collectors that extracting a shared helper was justified by real
+evidence rather than speculation (see `DECISIONS.md` ADR-012's "three or
+more collectors" threshold). **Use these instead of writing your own
+per-collector copy** — that's the whole point of extracting them.
+
+### `nodeiq.core.errors.error_entry`
+
+Every collector builds `collection_errors`-shaped dicts the same way.
+Instead of a private `_error_entry` function in every module (all nine
+collectors had one, byte-for-byte identical except `permissions.py`'s
+message):
+
+```python
+from nodeiq.core.errors import error_entry
+
+try:
+    ...
+except ValueError as exc:
+    errors.append(error_entry(exc))
+```
+
+Pass an explicit `message=` when the caught exception doesn't carry
+enough context on its own (see `permissions.py`, which adds which path
+was being checked — an `OSError` from `Path.stat()` doesn't know that):
+
+```python
+except OSError as exc:
+    errors.append(error_entry(exc, message=f"could not check {path}: {exc}"))
+```
+
+`severity` is always `"error"` — no collector has ever needed
+`"warning"` through this helper. If one genuinely does someday, add the
+parameter back then, from that real need, rather than speculatively now.
+
+### `nodeiq.core.runner.command_failure_message`
+
+Every collector that runs a command and checks `result.succeeded` builds
+its failure message the same way (11 occurrences across 6 collectors by
+Collector Sprint 2 — `system.py`, `disk.py`, `services.py`,
+`scheduled_jobs.py`, `network.py`, `logs.py`):
+
+```python
+from nodeiq.core.runner import command_failure_message, run_command
+
+result = run_command(_MY_COMMAND, timeout=context.default_timeout)
+if not result.succeeded:
+    raise ValueError(command_failure_message(_MY_COMMAND, result))
+```
+
+This only builds the message string — the `if`/`raise` stays explicit
+in each collector, per this project's preference for obvious control
+flow over hidden magic (`PROJECT_RULES.md` Section 3).
+
+### `nodeiq.core.identity.resolve_username` / `resolve_groupname`
+
+`processes.py` (owner) and `permissions.py` (owner *and* group) all need
+to turn a raw UID/GID into a name, falling back to the numeric ID as a
+string when no name can be resolved:
+
+```python
+from nodeiq.core.identity import resolve_username, resolve_groupname
+
+owner = resolve_username(stat_result.st_uid)
+group = resolve_groupname(stat_result.st_gid)
+```
+
+This one met the "three or more" bar with only **two** collectors,
+because `permissions.py` alone had two near-identical copies (UID and
+GID) of the same pattern — three total implementations, two files.
+
+### What Was *Not* Extracted
+
+Two other candidates were considered during Phase 3.7 and deliberately
+**not** extracted, per this project's "avoid speculative abstractions"
+principle:
+
+- `scheduled_jobs.py`'s `_parse_system_crontab_line` and
+  `_parse_user_crontab_line` share about 10 lines of structure (schedule
+  extraction, `@special` handling), but the two formats genuinely differ
+  (one has an explicit user field, one doesn't) — unifying them would
+  need a branching, harder-to-read function, which fails the "does this
+  simplify the code?" test even though duplication is real. Left as two
+  plain, separately-readable functions.
+- The recurring "two-or-more independent sources merged, with graduated
+  failure handling" *shape* (seen in `disk.py`, `services.py`, and
+  `network.py`'s interface merge) is a structural pattern, not
+  duplicated code — there's no single function to extract, only a
+  design idea worth recognizing. See "Two Command-Execution Patterns"
+  below for where that idea is written down instead of turned into
+  premature shared code.
+
+---
+
+## Two Command-Execution Patterns
+
+Across all nine collectors, every command-based data source falls into
+one of two recognized shapes — both are correct; which one applies
+depends on whether the data source's absence is itself a fact worth
+reporting:
+
+1. **"This data source can fail" (raise / catch).** The overwhelming
+   majority of collector code follows this shape: call `run_command`,
+   check `result.succeeded`, `raise ValueError(command_failure_message(...))`
+   on failure, catch that `ValueError` in `collect()` and turn it into an
+   `error_entry`. Use this whenever a failure is something the snapshot's
+   consumer should be told about (`collection_errors` should reflect it).
+2. **"This data source is optional/best-effort" (direct check, no
+   exception).** `network.py`'s `_detect_firewall` is the one example so
+   far: it checks `result.succeeded` directly, tries the next tool on
+   failure, and never raises or records an error — because *none* of
+   `ufw`/`nft`/`iptables` being usable is a normal, expected outcome for
+   an unprivileged scan (verified for real on the Multipass VM — see
+   `docs/network_collector.md`), not a failure worth flagging. Use this
+   shape only when you can articulate why "nothing worked" is itself
+   valid data, not an error.
+
+If you're unsure which shape fits a new data source, default to the
+first (raise/catch) — it's the common case, and matches
+`docs/snapshot_schema.md` Section 12's expectation that failures show up
+in `collection_errors`. Reach for the second only with a clear,
+documented reason, the way `network.py` does.
 
 ---
 
@@ -265,6 +399,11 @@ touching how the command was run.
 
 ## Helper Function Conventions
 
+- Before writing a new private helper, check whether
+  `nodeiq.core.errors`, `nodeiq.core.runner`, or `nodeiq.core.identity`
+  already has it (see "Shared Helpers in `nodeiq.core`" above) — building
+  `collection_errors` entries, command-failure messages, and UID/GID
+  resolution are all already handled centrally.
 - Parsing logic lives in small, private helper functions prefixed with an
   underscore: `_parse_<something>`, e.g. `_parse_df_output`,
   `_parse_systemctl_units`. The underscore is Python's convention for
@@ -309,94 +448,31 @@ touching how the command was run.
 
 ---
 
-## Examples (Pseudo-code Only)
+## Examples (Real Collectors)
 
-The following is illustrative only — no such file exists yet, and none of
-this runs. It exists to show how the pieces above fit together, using the
-future `disk` collector as a concrete stand-in.
+Earlier revisions of this document illustrated the pattern with
+pseudo-code for a hypothetical future `disk` collector. `disk.py` (and
+every other collector) is real now, so read the real thing instead of a
+fictional stand-in:
 
-```python
-# src/nodeiq/collectors/disk.py  (illustrative — not a real implementation)
+- **`src/nodeiq/collectors/disk.py`** + `docs/disk_collector.md` — two
+  independent command-based sources merged by key, the "raise/catch"
+  command-execution shape, and the shared `error_entry`/
+  `command_failure_message` helpers all in use together.
+- **`src/nodeiq/collectors/cpu_memory.py`** + `docs/cpu_memory_collector.md`
+  — a collector needing no commands at all, only `/proc` file reads.
+- **`src/nodeiq/collectors/network.py`** + `docs/network_collector.md` —
+  the one example so far of the "best-effort, no exception" shape (see
+  "Two Command-Execution Patterns" above), alongside three ordinary
+  raise/catch sources in the same collector.
+- **`src/nodeiq/collectors/permissions.py`** + `docs/permissions_collector.md`
+  — a collector needing no commands and no `/proc`, just
+  `pathlib.Path.stat()` plus the shared identity helpers.
 
-import time
-
-from nodeiq.core.collector import CollectorContext, CollectorResult
-from nodeiq.core.runner import run_command
-
-
-def collect(context: CollectorContext) -> CollectorResult:
-    start = time.monotonic()
-    errors = []
-
-    result = run_command(["df", "-P", "-k"], timeout=context.default_timeout)
-    if not result.succeeded:
-        errors.append({
-            "message": f"df failed: {result.error or result.stderr}",
-            "severity": "error",
-            "exception_type": None,
-        })
-        return CollectorResult(
-            collector_name="disk",
-            data={"filesystems": []},
-            errors=errors,
-            duration_ms=(time.monotonic() - start) * 1000,
-        )
-
-    try:
-        filesystems = _parse_df_output(result.stdout)
-    except ValueError as exc:
-        errors.append({
-            "message": f"could not parse df output: {exc}",
-            "severity": "error",
-            "exception_type": type(exc).__name__,
-        })
-        return CollectorResult(
-            collector_name="disk",
-            data={"filesystems": []},
-            errors=errors,
-            duration_ms=(time.monotonic() - start) * 1000,
-        )
-
-    return CollectorResult(
-        collector_name="disk",
-        data={"filesystems": filesystems},
-        errors=errors,
-        duration_ms=(time.monotonic() - start) * 1000,
-    )
-
-
-def _parse_df_output(raw_output: str) -> list[dict]:
-    """Pure function: df's text table in, a list of filesystem dicts out.
-    No subprocess calls, no I/O — just string parsing."""
-    ...
-```
-
-```python
-# tests/collectors/test_disk.py  (illustrative — not a real test file)
-
-from datetime import datetime, timezone
-
-from nodeiq.core.collector import CollectorContext
-
-
-def test_parse_df_output_handles_a_normal_row():
-    sample = "Filesystem 1024-blocks Used Available Capacity Mounted\n" \
-             "/dev/sda1  10000       4000 6000      40%       /\n"
-    result = _parse_df_output(sample)
-    assert result[0]["mount_point"] == "/"
-    assert result[0]["used_percent"] == 40.0
-
-
-def test_collect_reports_an_error_when_df_is_missing(monkeypatch):
-    monkeypatch.setattr("nodeiq.collectors.disk.run_command", _fake_missing_df)
-    context = CollectorContext(scan_start_time=datetime.now(timezone.utc))
-
-    result = collect(context)
-
-    assert result.data == {"filesystems": []}
-    assert len(result.errors) == 1
-    assert result.success is False
-```
+Each collector's own `tests/collectors/test_<name>.py` shows the real
+testing pattern in practice: pure-function tests for every `_parse_*`
+helper with literal sample text, and `collect()` tested end-to-end with
+`run_command` replaced via `monkeypatch`.
 
 ---
 
@@ -434,9 +510,18 @@ structure was still justified and nothing crept in beyond it.
   attaches names to values that already existed (`data`, `errors`) and adds
   two genuinely new, minimal pieces of information (`duration_ms`,
   `collector_name`) plus a computed `success` property.
-- **Still practical for all nine planned collectors** (`system`,
-  `cpu_memory`, `processes`, `disk`, `services`, `logs`, `network`,
-  `scheduled_jobs`, `permissions`) — a collector that only needs to read
-  one `/proc` file still constructs the same two-field `CollectorResult`
-  as one that runs several commands; nothing about the refinement forces
-  extra structure onto a simple collector.
+- **Practical for all nine real collectors** (`system`, `cpu_memory`,
+  `processes`, `disk`, `services`, `scheduled_jobs`, `permissions`,
+  `network`, `logs`) — a collector that only needs to read one `/proc`
+  file still constructs the same two-field `CollectorResult` as one that
+  runs several commands; nothing about the contract forces extra
+  structure onto a simple collector.
+- **Phase 3.7's shared-helper extractions were reviewed against the same
+  bar, retroactively.** Each of the three helpers in "Shared Helpers in
+  `nodeiq.core`" above was checked against three questions before being
+  kept: does it simplify the code, is it based on real (not speculative)
+  duplication, and would it still be worth doing with only two
+  collectors? All three passed. A fourth candidate — a `severity`
+  parameter on `error_entry` — was cut during this same review because
+  no collector had ever actually needed anything but `"error"`; adding it
+  back speculatively would have failed the second question.

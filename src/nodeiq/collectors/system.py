@@ -16,7 +16,8 @@ import time
 from pathlib import Path
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
-from nodeiq.core.runner import run_command
+from nodeiq.core.errors import error_entry
+from nodeiq.core.runner import command_failure_message, run_command
 
 _OS_RELEASE_PATH = Path("/etc/os-release")
 _UPTIME_PATH = Path("/proc/uptime")
@@ -41,31 +42,31 @@ def collect(context: CollectorContext) -> CollectorResult:
         data["hostname"] = _get_hostname(context)
     except ValueError as exc:
         data["hostname"] = None
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     try:
         data["operating_system"] = _get_os_release()
     except ValueError as exc:
         data["operating_system"] = None
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     try:
         data["kernel_version"] = _get_kernel_version(context)
     except ValueError as exc:
         data["kernel_version"] = None
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     try:
         data["architecture"] = _get_architecture(context)
     except ValueError as exc:
         data["architecture"] = None
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     try:
         data["uptime_seconds"] = _get_uptime()
     except ValueError as exc:
         data["uptime_seconds"] = None
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     return CollectorResult(
         collector_name="system",
@@ -73,20 +74,6 @@ def collect(context: CollectorContext) -> CollectorResult:
         errors=errors,
         duration_ms=(time.monotonic() - start_time) * 1000,
     )
-
-
-def _error_entry(exc: ValueError) -> dict:
-    """Build one collection_errors-shaped entry from a caught ValueError.
-
-    Shared by every field below so collect() doesn't repeat the same
-    three-line dict five times — see docs/snapshot_schema.md Section 12
-    for the shape this matches.
-    """
-    return {
-        "message": str(exc),
-        "severity": "error",
-        "exception_type": type(exc).__name__,
-    }
 
 
 def _run_and_capture(command: list[str], context: CollectorContext) -> str:
@@ -100,9 +87,7 @@ def _run_and_capture(command: list[str], context: CollectorContext) -> str:
     """
     result = run_command(command, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(command)} failed: {result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(command, result))
     output = result.stdout.strip()
     if not output:
         raise ValueError(f"{' '.join(command)} produced no output")

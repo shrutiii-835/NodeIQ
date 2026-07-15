@@ -13,7 +13,8 @@ detected and reported via `systemd_available`.
 import time
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
-from nodeiq.core.runner import run_command
+from nodeiq.core.errors import error_entry
+from nodeiq.core.runner import command_failure_message, run_command
 
 _LIST_UNITS_COMMAND = [
     "systemctl",
@@ -54,7 +55,7 @@ def collect(context: CollectorContext) -> CollectorResult:
     try:
         units = _get_service_units(context)
     except ValueError as exc:
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
         return CollectorResult(
             collector_name="services",
             data={
@@ -79,7 +80,7 @@ def collect(context: CollectorContext) -> CollectorResult:
         )
     except ValueError as exc:
         data["enabled_services_count"] = None
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     return CollectorResult(
         collector_name="services",
@@ -87,18 +88,6 @@ def collect(context: CollectorContext) -> CollectorResult:
         errors=errors,
         duration_ms=(time.monotonic() - start_time) * 1000,
     )
-
-
-def _error_entry(exc: ValueError) -> dict:
-    """Build one collection_errors-shaped entry from a caught ValueError.
-
-    See docs/snapshot_schema.md Section 12 for the shape this matches.
-    """
-    return {
-        "message": str(exc),
-        "severity": "error",
-        "exception_type": type(exc).__name__,
-    }
 
 
 def _get_service_units(context: CollectorContext) -> list[dict]:
@@ -111,10 +100,7 @@ def _get_service_units(context: CollectorContext) -> list[dict]:
     """
     result = run_command(_LIST_UNITS_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_LIST_UNITS_COMMAND)} failed: "
-            f"{result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_LIST_UNITS_COMMAND, result))
     return _parse_service_units(result.stdout)
 
 
@@ -172,10 +158,7 @@ def _get_unit_file_states(context: CollectorContext) -> dict:
     """
     result = run_command(_LIST_UNIT_FILES_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_LIST_UNIT_FILES_COMMAND)} failed: "
-            f"{result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_LIST_UNIT_FILES_COMMAND, result))
     return _parse_unit_files(result.stdout)
 
 

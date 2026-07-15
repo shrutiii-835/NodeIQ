@@ -22,8 +22,8 @@ def test_check_path_returns_full_data_for_an_existing_file(tmp_path, monkeypatch
     target.write_text("root:x:0:0:root:/root:/bin/bash\n")
     os.chmod(target, 0o644)
 
-    monkeypatch.setattr(permissions, "_resolve_owner", lambda uid: "root")
-    monkeypatch.setattr(permissions, "_resolve_group", lambda gid: "root")
+    monkeypatch.setattr(permissions, "resolve_username", lambda uid: "root")
+    monkeypatch.setattr(permissions, "resolve_groupname", lambda gid: "root")
 
     entry, error = permissions._check_path(target)
 
@@ -43,8 +43,8 @@ def test_check_path_detects_world_writable_files(tmp_path, monkeypatch):
     target.write_text("data")
     os.chmod(target, 0o666)
 
-    monkeypatch.setattr(permissions, "_resolve_owner", lambda uid: "root")
-    monkeypatch.setattr(permissions, "_resolve_group", lambda gid: "root")
+    monkeypatch.setattr(permissions, "resolve_username", lambda uid: "root")
+    monkeypatch.setattr(permissions, "resolve_groupname", lambda gid: "root")
 
     entry, error = permissions._check_path(target)
 
@@ -88,45 +88,6 @@ def test_check_path_records_an_error_when_stat_raises_an_unexpected_oserror(
     assert error["exception_type"] == "PermissionError"
 
 
-# --- _resolve_owner / _resolve_group -----------------------------------------------
-
-
-def test_resolve_owner_returns_username_when_lookup_succeeds(monkeypatch):
-    class _FakePasswdEntry:
-        pw_name = "root"
-
-    monkeypatch.setattr(permissions.pwd, "getpwuid", lambda uid: _FakePasswdEntry())
-
-    assert permissions._resolve_owner(0) == "root"
-
-
-def test_resolve_owner_falls_back_to_uid_string_when_lookup_fails(monkeypatch):
-    def _raise_keyerror(uid):
-        raise KeyError(uid)
-
-    monkeypatch.setattr(permissions.pwd, "getpwuid", _raise_keyerror)
-
-    assert permissions._resolve_owner(99999) == "99999"
-
-
-def test_resolve_group_returns_group_name_when_lookup_succeeds(monkeypatch):
-    class _FakeGroupEntry:
-        gr_name = "root"
-
-    monkeypatch.setattr(permissions.grp, "getgrgid", lambda gid: _FakeGroupEntry())
-
-    assert permissions._resolve_group(0) == "root"
-
-
-def test_resolve_group_falls_back_to_gid_string_when_lookup_fails(monkeypatch):
-    def _raise_keyerror(gid):
-        raise KeyError(gid)
-
-    monkeypatch.setattr(permissions.grp, "getgrgid", _raise_keyerror)
-
-    assert permissions._resolve_group(99999) == "99999"
-
-
 # --- collect() end-to-end -------------------------------------------------------
 
 
@@ -141,8 +102,8 @@ def test_collect_checks_every_configured_path(monkeypatch, tmp_path):
     missing = tmp_path / "missing"
 
     monkeypatch.setattr(permissions, "_CHECKED_PATHS", [existing, missing])
-    monkeypatch.setattr(permissions, "_resolve_owner", lambda uid: "root")
-    monkeypatch.setattr(permissions, "_resolve_group", lambda gid: "root")
+    monkeypatch.setattr(permissions, "resolve_username", lambda uid: "root")
+    monkeypatch.setattr(permissions, "resolve_groupname", lambda gid: "root")
 
     result = permissions.collect(_context())
 
@@ -173,8 +134,8 @@ def test_collect_continues_past_a_path_that_cannot_be_checked(monkeypatch, tmp_p
 
     monkeypatch.setattr(permissions, "_CHECKED_PATHS", [good, bad])
     monkeypatch.setattr(permissions, "_check_path", fake_check_path)
-    monkeypatch.setattr(permissions, "_resolve_owner", lambda uid: "root")
-    monkeypatch.setattr(permissions, "_resolve_group", lambda gid: "root")
+    monkeypatch.setattr(permissions, "resolve_username", lambda uid: "root")
+    monkeypatch.setattr(permissions, "resolve_groupname", lambda gid: "root")
 
     result = permissions.collect(_context())
 

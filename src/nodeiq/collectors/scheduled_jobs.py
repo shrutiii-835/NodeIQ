@@ -16,7 +16,8 @@ import time
 from pathlib import Path
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
-from nodeiq.core.runner import run_command
+from nodeiq.core.errors import error_entry
+from nodeiq.core.runner import command_failure_message, run_command
 
 _ETC_CRONTAB_PATH = Path("/etc/crontab")
 _CRON_D_DIR = Path("/etc/cron.d")
@@ -45,7 +46,7 @@ def collect(context: CollectorContext) -> CollectorResult:
         timers = _get_systemd_timers(context)
     except ValueError as exc:
         timers = []
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     data = {
         "cron_job_count": len(cron_jobs),
@@ -60,18 +61,6 @@ def collect(context: CollectorContext) -> CollectorResult:
         errors=errors,
         duration_ms=(time.monotonic() - start_time) * 1000,
     )
-
-
-def _error_entry(exc: ValueError) -> dict:
-    """Build one collection_errors-shaped entry from a caught ValueError.
-
-    See docs/snapshot_schema.md Section 12 for the shape this matches.
-    """
-    return {
-        "message": str(exc),
-        "severity": "error",
-        "exception_type": type(exc).__name__,
-    }
 
 
 def _get_system_cron_jobs() -> list[dict]:
@@ -215,10 +204,7 @@ def _get_systemd_timers(context: CollectorContext) -> list[dict]:
     """
     result = run_command(_LIST_TIMERS_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_LIST_TIMERS_COMMAND)} failed: "
-            f"{result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_LIST_TIMERS_COMMAND, result))
     return _parse_list_timers(result.stdout)
 
 

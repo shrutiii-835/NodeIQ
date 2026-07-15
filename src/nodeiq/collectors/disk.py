@@ -20,7 +20,8 @@ docs/disk_collector.md for why.
 import time
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
-from nodeiq.core.runner import run_command
+from nodeiq.core.errors import error_entry
+from nodeiq.core.runner import command_failure_message, run_command
 
 _DISK_USAGE_COMMAND = ["df", "-P", "-B1"]
 _INODE_USAGE_COMMAND = ["df", "-P", "-i"]
@@ -45,7 +46,7 @@ def collect(context: CollectorContext) -> CollectorResult:
     try:
         filesystems = _get_disk_usage(context)
     except ValueError as exc:
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
         return CollectorResult(
             collector_name="disk",
             data={
@@ -61,7 +62,7 @@ def collect(context: CollectorContext) -> CollectorResult:
         inode_usage_by_mount = _get_inode_usage(context)
     except ValueError as exc:
         inode_usage_by_mount = {}
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     merged = _merge_filesystems(filesystems, inode_usage_by_mount)
 
@@ -79,18 +80,6 @@ def collect(context: CollectorContext) -> CollectorResult:
     )
 
 
-def _error_entry(exc: ValueError) -> dict:
-    """Build one collection_errors-shaped entry from a caught ValueError.
-
-    See docs/snapshot_schema.md Section 12 for the shape this matches.
-    """
-    return {
-        "message": str(exc),
-        "severity": "error",
-        "exception_type": type(exc).__name__,
-    }
-
-
 def _get_disk_usage(context: CollectorContext) -> list[dict]:
     """Run `df -P -B1` and parse it into a list of per-filesystem disk
     usage dicts.
@@ -99,10 +88,7 @@ def _get_disk_usage(context: CollectorContext) -> list[dict]:
     """
     result = run_command(_DISK_USAGE_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_DISK_USAGE_COMMAND)} failed: "
-            f"{result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_DISK_USAGE_COMMAND, result))
     return _parse_df_output(result.stdout)
 
 
@@ -142,10 +128,7 @@ def _get_inode_usage(context: CollectorContext) -> dict:
     """
     result = run_command(_INODE_USAGE_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_INODE_USAGE_COMMAND)} failed: "
-            f"{result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_INODE_USAGE_COMMAND, result))
     return _parse_df_inode_output(result.stdout)
 
 

@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
+from nodeiq.core.errors import error_entry
 
 _MEMINFO_PATH = Path("/proc/meminfo")
 _LOADAVG_PATH = Path("/proc/loadavg")
@@ -45,7 +46,7 @@ def collect(context: CollectorContext) -> CollectorResult:
         data["memory_usage_percent"] = None
         data["swap_used_bytes"] = None
         data["swap_usage_percent"] = None
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     try:
         data.update(_get_load_average_fields())
@@ -53,7 +54,7 @@ def collect(context: CollectorContext) -> CollectorResult:
         data["load_average_1m"] = None
         data["load_average_5m"] = None
         data["load_average_15m"] = None
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     return CollectorResult(
         collector_name="cpu_memory",
@@ -61,18 +62,6 @@ def collect(context: CollectorContext) -> CollectorResult:
         errors=errors,
         duration_ms=(time.monotonic() - start_time) * 1000,
     )
-
-
-def _error_entry(exc: ValueError) -> dict:
-    """Build one collection_errors-shaped entry from a caught ValueError.
-
-    See docs/snapshot_schema.md Section 12 for the shape this matches.
-    """
-    return {
-        "message": str(exc),
-        "severity": "error",
-        "exception_type": type(exc).__name__,
-    }
 
 
 def _read_proc_file(path: Path) -> str:

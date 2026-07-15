@@ -10,10 +10,10 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Collector Sprint 2 — Network, Logs (complete). **All 9 planned Phase 3.2C collectors are now implemented — NodeIQ v1's data collection layer is complete.**
+- **Current Phase:** Phase 3.7 — Refactoring Sprint (complete)
 - **Next Phase:** Phase 4 — Report Generation
-- **Overall Progress:** 93 / 116 tasks complete (~80%)
-- **Completed Tasks:** 93 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2)
+- **Overall Progress:** 100 / 123 tasks complete (~81%)
+- **Completed Tasks:** 100 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7)
 - **Remaining Tasks:** 23 (1 in Phase 2, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
@@ -152,6 +152,16 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Unit tests and integration tests for both collectors, verified on the Multipass VM (full 193-test suite passing)
 - [x] Document both collectors (`docs/network_collector.md`, `docs/logs_collector.md`)
 - [x] Quality review of both collectors; consolidated Refactoring Opportunities recorded (with Collector Sprint 1's), not refactored (per this sprint's explicit scope)
+
+### Phase 3.7 — Refactoring Sprint
+
+- [x] Extract shared `error_entry` helper (`nodeiq/core/errors.py`) from 9 identical per-collector `_error_entry` definitions
+- [x] Extract shared `command_failure_message` helper (`nodeiq/core/runner.py`) from 11 identical call sites across 6 collectors
+- [x] Extract shared `resolve_username`/`resolve_groupname` helpers (`nodeiq/core/identity.py`) from 3 near-identical UID/GID resolution implementations across 2 collectors
+- [x] Update all 9 collectors to use the shared helpers; remove every local copy
+- [x] Quality review each extraction against "simplifies code / real duplication / worth it with two collectors" — removed a speculative `severity` parameter from `error_entry` that no caller actually used
+- [x] Verify zero behavior change: full test suite passes locally and on the Multipass VM; a real snapshot's shape and values are unchanged
+- [x] Document the shared helpers and two observed command-execution patterns (`docs/collector_guidelines.md`)
 
 ## Phase 4 — Report Generation
 

@@ -13,12 +13,12 @@ plus `pwd`/`grp` lookups, the same pattern `processes.py` already uses
 for UID resolution.
 """
 
-import grp
-import pwd
 import time
 from pathlib import Path
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
+from nodeiq.core.errors import error_entry
+from nodeiq.core.identity import resolve_groupname, resolve_username
 
 _CHECKED_PATHS = [
     Path("/etc/passwd"),
@@ -57,19 +57,6 @@ def collect(context: CollectorContext) -> CollectorResult:
     )
 
 
-def _error_entry(exc: OSError, path: Path) -> dict:
-    """Build one collection_errors-shaped entry from a caught OSError
-    while checking one specific path.
-
-    See docs/snapshot_schema.md Section 12 for the shape this matches.
-    """
-    return {
-        "message": f"could not check {path}: {exc}",
-        "severity": "error",
-        "exception_type": type(exc).__name__,
-    }
-
-
 def _check_path(path: Path) -> tuple[dict, dict | None]:
     """Check one path's existence, ownership, and permissions.
 
@@ -85,7 +72,8 @@ def _check_path(path: Path) -> tuple[dict, dict | None]:
     except FileNotFoundError:
         return _empty_entry(path, exists=False), None
     except OSError as exc:
-        return _empty_entry(path, exists=None), _error_entry(exc, path)
+        error = error_entry(exc, message=f"could not check {path}: {exc}")
+        return _empty_entry(path, exists=None), error
 
     return _entry_from_stat(path, stat_result), None
 
@@ -110,32 +98,8 @@ def _entry_from_stat(path: Path, stat_result) -> dict:
     return {
         "path": str(path),
         "exists": True,
-        "owner": _resolve_owner(stat_result.st_uid),
-        "group": _resolve_group(stat_result.st_gid),
+        "owner": resolve_username(stat_result.st_uid),
+        "group": resolve_groupname(stat_result.st_gid),
         "mode": oct(mode)[2:].zfill(3),
         "world_writable": bool(mode & 0o002),
     }
-
-
-def _resolve_owner(uid: int) -> str:
-    """Resolve a UID to a username via the system's user database.
-
-    Falls back to the numeric UID as a string if no username can be
-    resolved — the same pattern `processes.py` already uses.
-    """
-    try:
-        return pwd.getpwuid(uid).pw_name
-    except KeyError:
-        return str(uid)
-
-
-def _resolve_group(gid: int) -> str:
-    """Resolve a GID to a group name via the system's group database.
-
-    Falls back to the numeric GID as a string if no group name can be
-    resolved.
-    """
-    try:
-        return grp.getgrgid(gid).gr_name
-    except KeyError:
-        return str(gid)

@@ -15,11 +15,12 @@ not parsed in v1 — see docs/process_collector.md, "Why `stat` Was
 Intentionally Deferred."
 """
 
-import pwd
 import time
 from pathlib import Path
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
+from nodeiq.core.errors import error_entry
+from nodeiq.core.identity import resolve_username
 
 _PROC_ROOT = Path("/proc")
 _TOP_N = 10
@@ -46,7 +47,7 @@ def collect(context: CollectorContext) -> CollectorResult:
     try:
         pids = _discover_pids()
     except ValueError as exc:
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
         return CollectorResult(
             collector_name="processes",
             data={
@@ -71,18 +72,6 @@ def collect(context: CollectorContext) -> CollectorResult:
         errors=errors,
         duration_ms=(time.monotonic() - start_time) * 1000,
     )
-
-
-def _error_entry(exc: ValueError) -> dict:
-    """Build one collection_errors-shaped entry from a caught ValueError.
-
-    See docs/snapshot_schema.md Section 12 for the shape this matches.
-    """
-    return {
-        "message": str(exc),
-        "severity": "error",
-        "exception_type": type(exc).__name__,
-    }
 
 
 def _discover_pids() -> list[int]:
@@ -129,7 +118,7 @@ def _read_process(pid: int) -> dict | None:
         "pid": pid,
         "process_name": comm_text.strip(),
         "memory_rss_bytes": status_fields["memory_rss_bytes"],
-        "owner": _resolve_owner(status_fields["uid"]),
+        "owner": resolve_username(status_fields["uid"]),
         "state": status_fields["state"],
         "command": _parse_cmdline(cmdline_text),
     }
@@ -214,20 +203,6 @@ def _parse_cmdline(raw_text: str) -> str:
     legitimately have no command line at all — not treated as an error.
     """
     return " ".join(part for part in raw_text.split("\0") if part)
-
-
-def _resolve_owner(uid: int) -> str:
-    """Resolve a UID to a username via the system's user database.
-
-    Falls back to the numeric UID as a string if no username can be
-    resolved (e.g. an LDAP-backed UID with no local mapping) — a raw UID
-    is still useful evidence, so this degrades gracefully rather than
-    omitting `owner` entirely.
-    """
-    try:
-        return pwd.getpwuid(uid).pw_name
-    except KeyError:
-        return str(uid)
 
 
 def _summarize(processes: list[dict]) -> dict:

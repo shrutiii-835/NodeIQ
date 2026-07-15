@@ -13,7 +13,8 @@ import re
 import time
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
-from nodeiq.core.runner import run_command
+from nodeiq.core.errors import error_entry
+from nodeiq.core.runner import command_failure_message, run_command
 
 _LINK_COMMAND = ["ip", "-o", "link", "show"]
 _ADDR_COMMAND = ["ip", "-o", "addr", "show"]
@@ -46,27 +47,27 @@ def collect(context: CollectorContext) -> CollectorResult:
     try:
         states = _get_interface_states(context)
     except ValueError as exc:
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
         interfaces = []
     else:
         try:
             addresses = _get_interface_addresses(context)
         except ValueError as exc:
             addresses = {}
-            errors.append(_error_entry(exc))
+            errors.append(error_entry(exc))
         interfaces = _merge_interfaces(states, addresses)
 
     try:
         default_route = _get_default_route(context)
     except ValueError as exc:
         default_route = None
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     try:
         listening_ports = _get_listening_ports(context)
     except ValueError as exc:
         listening_ports = []
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
 
     data = {
         "interfaces": interfaces,
@@ -83,18 +84,6 @@ def collect(context: CollectorContext) -> CollectorResult:
     )
 
 
-def _error_entry(exc: ValueError) -> dict:
-    """Build one collection_errors-shaped entry from a caught ValueError.
-
-    See docs/snapshot_schema.md Section 12 for the shape this matches.
-    """
-    return {
-        "message": str(exc),
-        "severity": "error",
-        "exception_type": type(exc).__name__,
-    }
-
-
 def _get_interface_states(context: CollectorContext) -> dict:
     """Run `ip -o link show` and parse it into a dict mapping interface
     name to `"up"`/`"down"`.
@@ -103,9 +92,7 @@ def _get_interface_states(context: CollectorContext) -> dict:
     """
     result = run_command(_LINK_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_LINK_COMMAND)} failed: {result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_LINK_COMMAND, result))
     return _parse_interface_states(result.stdout)
 
 
@@ -151,9 +138,7 @@ def _get_interface_addresses(context: CollectorContext) -> dict:
     """
     result = run_command(_ADDR_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_ADDR_COMMAND)} failed: {result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_ADDR_COMMAND, result))
     return _parse_interface_addresses(result.stdout)
 
 
@@ -214,10 +199,7 @@ def _get_default_route(context: CollectorContext) -> dict | None:
     """
     result = run_command(_DEFAULT_ROUTE_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_DEFAULT_ROUTE_COMMAND)} failed: "
-            f"{result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_DEFAULT_ROUTE_COMMAND, result))
     return _parse_default_route(result.stdout)
 
 
@@ -253,10 +235,7 @@ def _get_listening_ports(context: CollectorContext) -> list[dict]:
     """
     result = run_command(_LISTENING_PORTS_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_LISTENING_PORTS_COMMAND)} failed: "
-            f"{result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_LISTENING_PORTS_COMMAND, result))
     return _parse_ss_output(result.stdout)
 
 

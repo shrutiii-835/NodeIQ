@@ -2173,3 +2173,171 @@ all 9 collectors exist to draw genuine, evidence-based conclusions from:
   Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs. `TypedDict`
   decision for snapshot section shapes; `CONTEXT.md` Section 6
   clarifying note (optional); Multipass setup docs in `README.md`.
+
+---
+
+## 2026-07-15 — Phase 3.7: Refactoring Sprint
+
+**Task**
+
+With NodeIQ v1's entire data collection layer complete (all 9
+collectors, as of Collector Sprint 2), extract only the shared utilities
+that duplication across all nine collectors has actually justified —
+the three candidates already named across the last two sprints'
+"Refactoring Opportunities" write-ups. Explicitly not a feature
+phase: no new collectors, no `CollectorContext`/`CollectorResult`/
+coordinator/snapshot-schema changes, and external behavior (every
+collector's output shape and every real value) must remain identical.
+
+**Files created**
+
+- `src/nodeiq/core/errors.py` — `error_entry(exception, *, message=None)`,
+  replacing nine identical (or, for `permissions.py`, near-identical)
+  private `_error_entry` functions.
+- `src/nodeiq/core/identity.py` — `resolve_username(uid)` and
+  `resolve_groupname(gid)`, replacing three near-identical UID/GID
+  resolution implementations shared between `processes.py` and
+  `permissions.py`.
+- `tests/core/test_errors.py` (4 tests), `tests/core/test_identity.py`
+  (4 tests) — dedicated unit tests for the two new shared modules,
+  replacing the equivalent tests that previously lived inside
+  `test_processes.py`/`test_permissions.py`.
+
+**Files modified**
+
+- `src/nodeiq/core/runner.py` — added `command_failure_message(command,
+  result)`, replacing eleven identical `f"{' '.join(command)} failed:
+  {result.error or result.stderr.strip()}"` constructions across six
+  collectors.
+- All nine collectors (`system.py`, `cpu_memory.py`, `processes.py`,
+  `disk.py`, `services.py`, `scheduled_jobs.py`, `permissions.py`,
+  `network.py`, `logs.py`) — replaced their own `_error_entry` with
+  `nodeiq.core.errors.error_entry`; the six command-based collectors
+  additionally replaced their own failure-message construction with
+  `nodeiq.core.runner.command_failure_message`; `processes.py` and
+  `permissions.py` additionally replaced their own UID/GID resolution
+  with `nodeiq.core.identity.resolve_username`/`resolve_groupname`.
+  `permissions.py` no longer imports `pwd`/`grp` directly.
+- `tests/collectors/test_processes.py`,
+  `tests/collectors/test_permissions.py` — removed the now-redundant
+  direct tests of the old private UID/GID resolution functions (moved to
+  `test_identity.py`); updated remaining tests to monkeypatch the
+  imported `resolve_username`/`resolve_groupname` names instead of the
+  removed `_resolve_owner`/`_resolve_group`.
+- `tests/core/test_runner.py` — added two tests for
+  `command_failure_message`.
+- `docs/collector_guidelines.md` — status line updated to reflect all
+  nine collectors built; new "Shared Helpers in `nodeiq.core`" section
+  documenting all three extractions, what each replaces, and what was
+  deliberately *not* extracted (the two crontab-line parsers; the
+  "multi-source merge" structural shape); new "Two Command-Execution
+  Patterns" section naming the raise/catch vs. best-effort shapes
+  observed across the collector set; "Error Handling Expectations" and
+  "Helper Function Conventions" updated to point to the shared helpers;
+  the old "future `disk` collector" pseudo-code example replaced with
+  pointers to the real collectors and their docs; "Quality Check"
+  section updated to record this sprint's own three-question review,
+  including the one parameter that was cut.
+- `CHECKLIST.md` — added a new "Phase 3.7 — Refactoring Sprint" section
+  (all 7 tasks checked); Progress Summary updated to 100/123 (~81%).
+
+**Reasoning**
+
+Every extraction was chosen from the "Refactoring Opportunities" lists
+already recorded in the two prior sprints' `LOGS.md` entries — nothing
+here is a new observation invented mid-sprint, exactly matching this
+task's "using evidence collected during previous phases" instruction.
+The three candidates were prioritized by how conclusively they'd already
+met `DECISIONS.md` ADR-012's "three or more collectors" bar:
+`_error_entry` (9 of 9 collectors, the strongest possible evidence),
+`command_failure_message` (11 occurrences across 6 collectors), and
+UID/GID resolution (technically only 2 collectors, but 3 total
+near-identical implementations, since `permissions.py` alone had two).
+
+Two candidates named in prior sprints were deliberately **not**
+extracted, and this is recorded explicitly rather than silently ignored
+— consistent with this project's established practice of writing down a
+tension rather than resolving or dropping it quietly:
+
+- `scheduled_jobs.py`'s two crontab-line parsers (`_parse_system_crontab_line`/
+  `_parse_user_crontab_line`) share structure, but unifying them would
+  require a branching function distinguishing "has an explicit user
+  field" from "doesn't," which is harder to read than two separate,
+  obviously-correct functions — this fails "does the abstraction
+  simplify the code?" even though the duplication is real.
+- The recurring "two-or-more independent sources merged, with graduated
+  failure handling" shape (`disk.py`, `services.py`, `network.py`) is a
+  structural *pattern*, not literal duplicated code — there's no single
+  function two collectors could share, only a design idea. This is
+  written down in `docs/collector_guidelines.md`'s new "Two
+  Command-Execution Patterns" section instead of forced into premature
+  shared code that wouldn't actually reduce anything.
+
+**Important implementation notes**
+
+- **The quality review caught and removed a real instance of
+  over-extraction, not just theoretical risk.** `error_entry`'s first
+  draft included a `severity: str = "error"` parameter, reasoning that
+  `docs/snapshot_schema.md` Section 12 documents `"warning"` as a valid
+  value. But grepping every one of the 19 real call sites (before this
+  sprint) confirmed **zero** of them ever passed anything but the
+  implicit `"error"` — the parameter was speculative, not
+  evidence-based, and was removed before committing. This is recorded
+  here as a concrete demonstration that the sprint's own three-question
+  review (`docs/collector_guidelines.md`'s "Quality Check") was actually
+  applied, not just stated.
+- **A precise, evidence-first audit preceded any code change:** every
+  collector file was read fresh and every `_error_entry` definition, all
+  eleven `result.error or result.stderr.strip()` occurrences, and all
+  three UID/GID resolution functions were located via `grep` before
+  writing a single shared helper — confirming the exact scope of
+  duplication rather than assuming it.
+- **Verified zero behavior change, not just "tests still pass":** beyond
+  the full test suite, a real `run_scan()` was captured before and after
+  the refactor (on both macOS and the Multipass VM) and compared field
+  by field — identical `collector_count` (9), identical set of
+  collectors reporting errors on macOS's graceful-degradation paths,
+  and identical real values on the VM (54 running services, disk usage
+  at 60.0%, empty `collection_errors`). This is the specific evidence
+  behind "external behavior must remain identical," not an assumption.
+- Verified genuinely on the Multipass VM, **twice**: an initial pass
+  (using the same clean `rsync`-filtered transfer procedure established
+  since Phase 3.6) confirmed 202 tests passing before the quality
+  review's `severity`-parameter removal (see below); after that removal
+  changed the code, the VM was re-verified from scratch rather than
+  trusting the earlier, now-stale run — 201 passed, exactly matching the
+  201 tests collected locally (191 passed + 10 skipped, the 10 needing a
+  real Linux system). A real `run_scan()` was re-captured on this final
+  VM pass too, confirming identical values (`collector_count: 9`, empty
+  `collection_errors`, 54 running services) to the pre-refactor
+  baseline.
+- Verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count (`grep -c` for `- [x]`/`- [ ]`): 100 complete, 23 remaining, 123
+  total (~81%).
+- Swept every touched file's headings (`grep -n '^#'`) to confirm
+  sequential, non-duplicated numbering before finishing.
+
+**Before/After Duplication Reduction**
+
+| Pattern | Before | After |
+|---|---|---|
+| `_error_entry`-shaped dict construction | 9 private definitions (one per collector) | 1 shared function (`nodeiq.core.errors.error_entry`) |
+| Command-failure message construction | 11 inline occurrences across 6 collectors | 1 shared function (`nodeiq.core.runner.command_failure_message`) |
+| UID/GID → name resolution | 3 near-identical implementations across 2 collectors | 2 shared functions (`nodeiq.core.identity.resolve_username`/`resolve_groupname`) |
+
+**Future TODOs**
+
+- **Phase 4 — Report Generation** is next, per `CONTEXT.md` Section 8's
+  phase ordering — unchanged by this sprint, since no new functionality
+  was implemented here.
+- Still open from prior entries: field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

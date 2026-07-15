@@ -110,27 +110,6 @@ def test_parse_status_raises_when_uid_is_missing():
         processes._parse_status(sample)
 
 
-# --- _resolve_owner -----------------------------------------------------------
-
-
-def test_resolve_owner_returns_username_when_lookup_succeeds(monkeypatch):
-    class _FakePasswdEntry:
-        pw_name = "shruti"
-
-    monkeypatch.setattr(processes.pwd, "getpwuid", lambda uid: _FakePasswdEntry())
-
-    assert processes._resolve_owner(1000) == "shruti"
-
-
-def test_resolve_owner_falls_back_to_uid_string_when_lookup_fails(monkeypatch):
-    def _raise_keyerror(uid):
-        raise KeyError(uid)
-
-    monkeypatch.setattr(processes.pwd, "getpwuid", _raise_keyerror)
-
-    assert processes._resolve_owner(99999) == "99999"
-
-
 # --- _discover_pids -----------------------------------------------------------
 
 
@@ -175,7 +154,7 @@ def test_read_process_returns_a_complete_entry(tmp_path, monkeypatch):
         comm="bash\n",
         cmdline="bash\0-c\0echo hi\0",
     )
-    monkeypatch.setattr(processes, "_resolve_owner", lambda uid: "shruti")
+    monkeypatch.setattr(processes, "resolve_username", lambda uid: "shruti")
 
     result = processes._read_process(2835)
 

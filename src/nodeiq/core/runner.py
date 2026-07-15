@@ -109,3 +109,18 @@ def run_command(
         stderr=completed.stderr,
         duration_seconds=time.monotonic() - start_time,
     )
+
+
+def command_failure_message(command: list[str], result: CommandResult) -> str:
+    """Build a human-readable "X failed: Y" message from a failed
+    `CommandResult`.
+
+    Every collector that runs a command follows the same
+    `if not result.succeeded: raise ValueError(...)` shape, and by
+    Collector Sprint 2 six collectors had independently built an
+    identical message this way — this is the single, shared home for
+    that message, extracted from that evidence (see DECISIONS.md
+    ADR-012's "three or more collectors" threshold). Callers still do
+    their own `if`/`raise` explicitly; this only builds the message text.
+    """
+    return f"{' '.join(command)} failed: {result.error or result.stderr.strip()}"

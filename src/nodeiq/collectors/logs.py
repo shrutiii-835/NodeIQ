@@ -17,7 +17,8 @@ import time
 from datetime import datetime, timezone
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
-from nodeiq.core.runner import run_command
+from nodeiq.core.errors import error_entry
+from nodeiq.core.runner import command_failure_message, run_command
 
 _MAX_ENTRIES = 100
 """How many recent warning-or-worse journal entries to fetch at most.
@@ -54,7 +55,7 @@ def collect(context: CollectorContext) -> CollectorResult:
     try:
         entries = _get_recent_log_entries(context)
     except ValueError as exc:
-        errors.append(_error_entry(exc))
+        errors.append(error_entry(exc))
         return CollectorResult(
             collector_name="logs",
             data={
@@ -79,18 +80,6 @@ def collect(context: CollectorContext) -> CollectorResult:
     )
 
 
-def _error_entry(exc: ValueError) -> dict:
-    """Build one collection_errors-shaped entry from a caught ValueError.
-
-    See docs/snapshot_schema.md Section 12 for the shape this matches.
-    """
-    return {
-        "message": str(exc),
-        "severity": "error",
-        "exception_type": type(exc).__name__,
-    }
-
-
 def _get_recent_log_entries(context: CollectorContext) -> list[dict]:
     """Run `journalctl -p warning -n <_MAX_ENTRIES> -o json` and parse
     it into a list of log entry dicts.
@@ -101,10 +90,7 @@ def _get_recent_log_entries(context: CollectorContext) -> list[dict]:
     """
     result = run_command(_JOURNALCTL_COMMAND, timeout=context.default_timeout)
     if not result.succeeded:
-        raise ValueError(
-            f"{' '.join(_JOURNALCTL_COMMAND)} failed: "
-            f"{result.error or result.stderr.strip()}"
-        )
+        raise ValueError(command_failure_message(_JOURNALCTL_COMMAND, result))
     return _parse_journal_json(result.stdout)
 
 

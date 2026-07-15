@@ -10,10 +10,10 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.7 — Refactoring Sprint (complete)
+- **Current Phase:** Phase 3.8 — Snapshot Persistence (complete)
 - **Next Phase:** Phase 4 — Report Generation
-- **Overall Progress:** 100 / 123 tasks complete (~81%)
-- **Completed Tasks:** 100 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7)
+- **Overall Progress:** 109 / 132 tasks complete (~83%)
+- **Completed Tasks:** 109 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8)
 - **Remaining Tasks:** 23 (1 in Phase 2, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
@@ -162,6 +162,18 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Quality review each extraction against "simplifies code / real duplication / worth it with two collectors" — removed a speculative `severity` parameter from `error_entry` that no caller actually used
 - [x] Verify zero behavior change: full test suite passes locally and on the Multipass VM; a real snapshot's shape and values are unchanged
 - [x] Document the shared helpers and two observed command-execution patterns (`docs/collector_guidelines.md`)
+
+### Phase 3.8 — Snapshot Persistence
+
+- [x] Implement `core/snapshot.py`: `save_snapshot()`, `load_snapshot(path)`, `load_latest_snapshot()`
+- [x] `save_snapshot()` creates `snapshots/` if missing, writes indented JSON, returns the saved path
+- [x] Deterministic, timestamped filenames derived from `metadata.scan_timestamp` (microsecond precision; falls back to current time if missing/malformed)
+- [x] `load_snapshot()` validates basic shape (JSON object with `metadata`) and raises `SnapshotError` (new, in `core/exceptions.py`) for any broken file
+- [x] `load_latest_snapshot()` selects the newest snapshot by filename (sorts chronologically by construction), no `stat()` needed
+- [x] Add `SnapshotError` to `core/exceptions.py`
+- [x] Coordinator unchanged — persistence wired in only via a documented usage example, never imported by `core/coordinator.py`
+- [x] Unit tests (full save/load/load_latest coverage, missing directory, malformed JSON) and a real save/load round trip verified with an actual `run_scan()` result, locally and on the Multipass VM
+- [x] Document snapshot persistence (`docs/snapshot_persistence.md`)
 
 ## Phase 4 — Report Generation
 

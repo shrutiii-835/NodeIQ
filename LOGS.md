@@ -2341,3 +2341,150 @@ tension rather than resolving or dropping it quietly:
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-15 — Phase 3.8: Snapshot Persistence
+
+**Task**
+
+Give snapshots a life beyond the process that produced them: save
+`run_scan()`'s in-memory result to disk, and load it back. Per this
+task's explicit scope, no CLI, no report generator, and no coordinator
+behavior change — `run_scan()` still returns a plain in-memory dict,
+exactly as it has since Phase 3.4; persistence is wired in only through
+a documented usage example, never through an import in either direction.
+
+**Files created**
+
+- `src/nodeiq/core/snapshot.py` — `save_snapshot(snapshot) -> Path`
+  (creates `snapshots/` if missing, writes indented JSON to a
+  timestamped filename, returns the path), `load_snapshot(path) -> dict`
+  (reads one snapshot back, raising `SnapshotError` for anything
+  broken), and `load_latest_snapshot() -> dict` (finds the newest
+  snapshot by filename and loads it). Plus private helpers
+  `_generate_filename`/`_filename_timestamp` (pure functions deriving a
+  deterministic, microsecond-precision filename from a snapshot's own
+  `metadata.scan_timestamp`) and `_validate_snapshot_shape` (a
+  deliberately shallow check — JSON object with a `metadata` key —
+  distinct from the coordinator's own, fuller
+  `_validate_snapshot`).
+- `tests/core/test_snapshot.py` — 16 tests: directory creation, valid
+  indented JSON, exact round-trip fidelity (both `Path` and string
+  inputs), filename derivation from `metadata.scan_timestamp` (plus two
+  tests for the missing/malformed fallback), `SnapshotError` for a
+  missing file, malformed JSON, a JSON value that isn't an object, and
+  JSON missing `metadata`; `load_latest_snapshot` selecting the newest
+  of several saved snapshots, handling a missing and an empty
+  `snapshots/` directory identically, and ignoring unrelated
+  non-snapshot files.
+- `docs/snapshot_persistence.md` — why snapshots need to outlive the
+  process that produced them, the save → load lifecycle, the naming
+  convention (and why it's derived from the snapshot's own timestamp
+  rather than wall-clock save time), why persistence and scanning are
+  kept as two independent modules with no imports between them, error
+  handling, and a Collector Review Checklist adapted for a persistence
+  module.
+
+**Files modified**
+
+- `src/nodeiq/core/exceptions.py` — added `SnapshotError(NodeIQError)`,
+  alongside the existing `InvalidCommandError`, for the same reason:
+  a genuine, unrecoverable problem (here, a broken snapshot file) that
+  should fail loudly rather than being silently absorbed the way a
+  collector's own anticipated failures are.
+- `CHECKLIST.md` — added a new "Phase 3.8 — Snapshot Persistence"
+  section (all 9 tasks checked); Progress Summary updated to 109/132
+  (~83%).
+
+**Reasoning**
+
+The filename derives from the snapshot's own `metadata.scan_timestamp`
+rather than the wall-clock time at the moment `save_snapshot()` happens
+to be called — a small but deliberate choice. A snapshot's filename
+should answer "when did this scan happen," not "when did someone get
+around to saving it," and using the embedded timestamp means the same
+snapshot content always produces the same filename regardless of when or
+how many times it's written — genuinely deterministic, not just
+timestamp-shaped. Microsecond precision (not just seconds) was chosen
+specifically because the test suite itself creates several snapshots in
+rapid succession — a real, observed need for collision resistance,
+not a hypothetical one.
+
+`load_latest_snapshot()` finds the newest snapshot by sorting
+**filenames**, not by checking file modification times. Because the
+timestamp components are fixed-width and zero-padded, lexicographic
+sorting and chronological sorting are the same operation — this avoids
+an `os.stat()` call per candidate file, and is more robust than
+`mtime`-based comparison, which can be wrong after a backup restore, a
+`git checkout`, or copying snapshot files between machines (all of
+which change a file's modification time without changing when the scan
+inside it actually happened).
+
+`load_snapshot`'s validation is deliberately shallow — confirming the
+loaded JSON is an object with a `metadata` key, nothing more. This was
+a conscious choice to avoid duplicating (and coupling to)
+`nodeiq.core.coordinator._validate_snapshot`'s full section-by-section
+check: that function's job is validating a snapshot the coordinator
+*just assembled* (so it should have every registered collector's
+section); this module's job is only catching "this file clearly isn't a
+snapshot at all" for a file that could have come from anywhere — an old
+snapshot from before a collector was added, a hand-edited test fixture,
+or a genuinely unrelated JSON file. Conflating the two checks would have
+made `load_snapshot` needlessly rigid about snapshots from an earlier
+NodeIQ version, and would have quietly re-coupled two modules this
+phase's whole point was keeping independent.
+
+`SnapshotError` was added to the existing `nodeiq.core.exceptions`
+module (not a new exceptions file) since the project already has
+exactly one small, shared home for "this is a genuine, must-fail-loudly
+problem" exceptions (`InvalidCommandError`), and a second one belonging
+to the same category obviously belongs alongside it — no new module was
+justified for one class.
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** a real `run_scan()`
+  result (all 9 collectors) was saved, reloaded, and compared for exact
+  equality — first locally on macOS, then for real on the Multipass
+  Ubuntu 24.04 VM (`main-cattle`) using the same clean
+  `rsync`-filtered transfer procedure established since Phase 3.6. Both
+  runs confirmed byte-for-byte round-trip fidelity
+  (`loaded == snapshot`) and `load_latest_snapshot()` correctly finding
+  the just-saved file. The full test suite passed both locally (207
+  passed, 10 skipped — the 16 new snapshot tests included) and on the
+  VM (217 passed, all skips lifting on real Linux). The temporary VM
+  copy was removed afterward; the demo snapshot file created locally
+  during manual verification was written to the scratchpad directory,
+  not the project's own `snapshots/`, so nothing needed cleaning up
+  there.
+- Confirmed `snapshots/*.json` is already gitignored (from Phase 1), so
+  any real snapshot files this module creates during manual testing or
+  future real use are never accidentally committed.
+- Confirmed via `grep` that `nodeiq.core.coordinator` and
+  `nodeiq.core.snapshot` do not import each other in either direction —
+  the independence this phase's design depends on is structural, not
+  just described in prose.
+- Swept every touched file's headings (`grep -n '^#'`) to confirm
+  sequential, non-duplicated numbering before finishing.
+
+**Future TODOs**
+
+- **Phase 4 — Report Generation** is next, per `CONTEXT.md` Section 8's
+  phase ordering — it will be the first real consumer of
+  `load_latest_snapshot()`/`load_snapshot()`.
+- Phase 5 (CLI) will be where `run_scan()` and `save_snapshot()` are
+  actually wired together in a real command (`nodeiq scan`), per this
+  phase's own usage example — not done now, since implementing the CLI
+  was explicitly out of this phase's scope.
+- Still open from prior entries: field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

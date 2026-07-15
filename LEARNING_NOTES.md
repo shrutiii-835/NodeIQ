@@ -865,3 +865,88 @@ disappeared between discovery and reading" as an expected, routine event
 for one process — not an error for the whole scan — which is why
 designing this collector carefully, before writing any code, mattered
 enough to be its own dedicated phase (`docs/process_collector_design.md`).
+
+---
+
+## Concepts Introduced in Phase 3.5B (Process Collector Implementation)
+
+### What is RSS memory?
+
+**RSS** stands for **Resident Set Size** — the amount of a process's
+memory that's actually sitting in physical RAM right now, as opposed to
+memory the process has been *given* but hasn't necessarily used yet, or
+memory that's been swapped out to disk. `/proc/<pid>/status`'s `VmRSS:`
+line reports exactly this number for one process, in kB.
+
+This is a different question from `cpu_memory.py`'s system-wide memory
+fields (Phase 3.3's notes): `cpu_memory.py` answers "how much memory is
+the whole machine using?" while `processes.py`'s `memory_rss_bytes`
+answers "how much memory is *this specific process* actually using?" —
+which is exactly what's needed to answer "what is consuming memory?"
+about one particular process rather than the system as a whole. A
+process with no `VmRSS` line at all (kernel threads, like `kthreadd`) has
+no resident memory to report at all, since it has no memory address
+space in the first place — `processes.py` treats this as `0`, not an
+error, for the same reason `cpu_memory.py` treats a `SwapTotal` of `0` as
+a legitimate value rather than a division-by-zero failure (Phase 3.3's
+notes).
+
+### Why do zombie processes matter?
+
+A **zombie** process (state `Z`) is one that has already finished
+running — its work is done — but its exit status hasn't yet been
+collected ("reaped") by its parent process. A zombie itself is nearly
+weightless: it uses essentially no memory or CPU, it's just a small
+leftover entry in the kernel's process table, waiting for its parent to
+notice it's done.
+
+The reason zombies are still worth counting: a *few*, short-lived
+zombies are completely normal — process exit and parent reaping usually
+happen close together in time. A *large or growing* zombie count is a
+sign something else is actually wrong — most often a bug in the parent
+process (it forgot to reap its children, or it's itself stuck and can't
+get around to it). `processes.py`'s `zombie_count` gives NodeIQ a way to
+notice that pattern building up, even though no single zombie by itself
+is a problem.
+
+### Why do D-state processes matter?
+
+A process in state `D` (uninterruptible sleep) is waiting on I/O —
+almost always disk or network storage — in a way that can't even be
+interrupted by an operator trying to stop it (not even Ctrl-C works on a
+`D`-state process). This is one of the most operationally significant
+signals a process's state can carry: a process stuck in `D` for an
+extended period is a classic sign of a struggling disk, a hung network
+filesystem, or failing storage hardware — exactly the kind of thing that
+makes a server feel "frozen" in ways that are otherwise hard to diagnose
+without specifically knowing to look for it.
+
+`processes.py`'s `blocked_process_count` surfaces this automatically,
+for the same reason `zombie_count` does: it's evidence a person would
+otherwise need to already suspect a problem to go looking for
+(`ps -eo state | grep D`), now present in every snapshot whether or not
+anyone thought to check.
+
+### Why can processes disappear during a scan?
+
+Processes on a running Linux system start and exit constantly and
+independently of anything NodeIQ is doing — a short-lived helper process,
+a finished background job, or a command that just happened to complete
+right as the scan reached it. `processes.py` first lists every PID
+currently in `/proc` (`_discover_pids`), then reads each one's files
+separately (`_read_process`) — and in the time between those two steps,
+any of those processes might have already exited on its own, for reasons
+entirely unrelated to NodeIQ.
+
+When that happens, the process's `/proc/<pid>/` directory is simply
+gone, and reading its files raises `FileNotFoundError`. `processes.py`
+treats this exactly the way `docs/process_collector_design.md` and this
+task's instructions require: skip that one PID silently and keep
+scanning the rest — never record it as a `collection_errors` entry.
+This is a different kind of "failure" from everything earlier collectors
+handled: `system.py`/`cpu_memory.py`'s failures mean "we know this fact
+exists but couldn't read it" (worth an error entry); a disappeared
+process instead means "this fact briefly existed and then genuinely
+stopped existing," which isn't a failure to collect anything at all — the
+process really is gone, and the collector's list is still completely
+accurate without it.

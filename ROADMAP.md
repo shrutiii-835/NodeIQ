@@ -8,31 +8,30 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ## Current Milestone
 
-**Phase 3.5A — Process Collector Design**
+**Phase 3.5B — Process Collector Implementation**
 
-A design-only phase (no code): studied how Linux exposes process
-information through `/proc/<pid>`, proposed a v1 process schema
-(`pid`, `process_name`, `command`, `state`, `memory_rss_bytes`, `owner`,
-`start_time`, `threads`), documented the five Linux process states
-(`R`/`S`/`D`/`T`/`Z`) and their operational significance, recommended a
-summarize-don't-dump strategy for feeding process data to the LLM, and
-reviewed `docs/snapshot_schema.md` Section 5's existing `processes`
-schema against this new design (see `docs/process_collector_design.md`
-for the full write-up, including open design questions still unresolved).
-The Process Collector itself is not implemented yet.
+The third real Linux collector: `collectors/processes.py` implements the
+design from Phase 3.5A, reading only `/proc/<pid>/status`, `cmdline`, and
+`comm` directly (`ps` is never invoked; `stat` is intentionally
+deferred). It produces `process_count`, `zombie_count`,
+`blocked_process_count`, and the top 10 processes by memory
+(`top_by_memory`, with `owner` resolved from UID). A process that exits
+mid-scan is skipped gracefully, never as a collector-wide error.
+Registered with the coordinator (`_REGISTERED_COLLECTORS`), verified with
+both mocked unit tests and a real end-to-end integration test on the
+Multipass VM (88 tests passing) — see `docs/process_collector.md`.
 
 ---
 
 ## Upcoming Milestone
 
-**Phase 3.2C continued — Implement the Processes Collector**
+**Phase 3.2C continued — Remaining Collectors**
 
-Implement `collectors/processes.py` following
-`docs/process_collector_design.md`'s plan, then continue with the
-remaining collectors (disk + inodes, services, logs, network, scheduled
-jobs, permissions) — registering each one with the coordinator
-(`docs/coordinator.md`) as it's built, so `run_scan()`'s snapshot grows
-one section at a time.
+Implement each remaining Linux data collector independently, following
+`system.py`, `cpu_memory.py`, and `processes.py` as templates: disk +
+inodes, services, logs, network, scheduled jobs, permissions —
+registering each one with the coordinator (`docs/coordinator.md`) as
+it's built, so `run_scan()`'s snapshot grows one section at a time.
 
 ---
 
@@ -103,3 +102,10 @@ one section at a time.
   process states, and a summarization strategy, plus a review of the
   existing `processes` schema section. See `docs/process_collector_design.md`
   and `LOGS.md`, "Phase 3.5A: Process Collector Design."
+- **Phase 3.5B — Process Collector Implementation**: built and verified
+  `collectors/processes.py` from the Phase 3.5A design — `process_count`,
+  `zombie_count`, `blocked_process_count`, and `top_by_memory`, reading
+  only `/proc/<pid>/status`/`cmdline`/`comm`, registered with the
+  coordinator, verified end to end on the Multipass VM. See
+  `docs/process_collector.md` and `LOGS.md`, "Phase 3.5B: Process
+  Collector Implementation."

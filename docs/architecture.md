@@ -1,11 +1,12 @@
-# Architecture — Core Execution Infrastructure (Phase 3.1–3.4)
+# Architecture — Core Execution Infrastructure (Phase 3.1–3.5B)
 
 **Status:** `nodeiq.core` exists and is tested, including the collector
 contract types (`CollectorContext`, `CollectorResult`) and a working
-`run_scan()` coordinator (Phase 3.4). `nodeiq.collectors` has two real
-collectors, `system.py` and `cpu_memory.py` — the remaining seven are
-still scaffolding. No CLI or LLM integration exists yet; `run_scan()`
-returns an in-memory snapshot dict and never writes to disk.
+`run_scan()` coordinator (Phase 3.4). `nodeiq.collectors` has three real
+collectors, `system.py`, `cpu_memory.py`, and `processes.py` — the
+remaining six are still scaffolding. No CLI or LLM integration exists
+yet; `run_scan()` returns an in-memory snapshot dict and never writes to
+disk.
 
 This document explains the code built in Phase 3.1, refined in Phase
 3.2B, and completed (for the coordinator) in Phase 3.4 — the reusable
@@ -139,16 +140,17 @@ what every `collect()` function receives and returns:
   `success` property. This replaces the earlier `(data, errors)` tuple
   contract from Phase 3.2A — see `DECISIONS.md` ADR-014 for why.
 
-### `nodeiq.collectors` (two collectors built)
+### `nodeiq.collectors` (three collectors built)
 
 Holds one module per snapshot section (`system.py`, `cpu_memory.py`,
 `disk.py`, ...), each exposing `collect(context: CollectorContext) ->
 CollectorResult`, using `nodeiq.core.runner` (or, for `/proc`-backed data,
-plain file I/O) to gather its own data. `system.py` (Phase 3.2C) and
-`cpu_memory.py` (Phase 3.3, renamed from `resource.py` in Phase 3.4) are
-built so far — see `docs/system_collector.md` and
-`docs/cpu_memory_collector.md`. The remaining seven are still
-scaffolding, following the same contract in `docs/collector_guidelines.md`.
+plain file I/O) to gather its own data. `system.py` (Phase 3.2C),
+`cpu_memory.py` (Phase 3.3, renamed from `resource.py` in Phase 3.4), and
+`processes.py` (Phase 3.5B) are built so far — see
+`docs/system_collector.md`, `docs/cpu_memory_collector.md`, and
+`docs/process_collector.md`. The remaining six are still scaffolding,
+following the same contract in `docs/collector_guidelines.md`.
 
 ### `nodeiq.core.coordinator` — `run_scan()` (MVP implemented, Phase 3.4)
 
@@ -157,7 +159,7 @@ registered collector with it, catches whatever each one raises, and
 assembles the final snapshot dict from each returned `CollectorResult` —
 see `docs/coordinator.md` for the full design and
 `src/nodeiq/core/coordinator.py`'s own docstring. `_REGISTERED_COLLECTORS`
-is currently `[system, cpu_memory]`; the remaining seven collectors will
+is currently `[system, cpu_memory, processes]`; the remaining six collectors will
 be added to that list as they're built. `run_scan()` returns an in-memory
 dict only — writing a snapshot to disk is Phase 5 (CLI).
 

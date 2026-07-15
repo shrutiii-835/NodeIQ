@@ -42,8 +42,8 @@ those are all later phases.
 
 This is the same principle established in `docs/data_model_design.md`
 and `docs/collector_guidelines.md`, now proven in running code rather
-than just documented: the coordinator imports `system` and `cpu_memory`
-directly, but neither collector imports the other, imports the
+than just documented: the coordinator imports `system`, `cpu_memory`,
+and `processes` directly, but no collector imports another, imports the
 coordinator, or knows the coordinator exists. Each collector's entire
 interface to the outside world is its one `collect(context) ->
 CollectorResult` function.
@@ -108,6 +108,7 @@ below) and returns:
     "collection_errors": {...},
     "system": {...},       # or None, if system crashed
     "cpu_memory": {...},   # or None, if cpu_memory crashed
+    "processes": {...},    # or None, if processes crashed
 }
 ```
 
@@ -168,12 +169,13 @@ is simply `None` too, never an error.
 ## Snapshot Validation
 
 `_validate_snapshot` is a plain function — no external validation
-library — that checks four required keys
-(`metadata`, `system`, `cpu_memory`, `collection_errors`) are present in
-the assembled dict, raising `ValueError` naming exactly which key(s) are
-missing if not. With the current two registered collectors, every
-section is always populated one way or another (successfully, or as a
-recorded crash with `None`), so this check is a defensive safety net
+library — that checks five required keys
+(`metadata`, `system`, `cpu_memory`, `processes`, `collection_errors`)
+are present in the assembled dict, raising `ValueError` naming exactly
+which key(s) are missing if not. With the current three registered
+collectors, every section is always populated one way or another
+(successfully, or as a recorded crash with `None`), so this check is a
+defensive safety net
 against a *coordinator* bug (e.g. a future collector whose
 `collector_name` doesn't match what's expected), not something normal
 collector failures should ever trigger.
@@ -198,11 +200,11 @@ tensions rather than silently resolving or ignoring them:
   `collectors_run`/`collectors_skipped` lists. This MVP has one
   `scan_timestamp`, one `scan_duration_ms`, and no schema version or
   per-collector run/skip lists.
-- **Only two collectors are registered.** `_REGISTERED_COLLECTORS` is
-  `[system, cpu_memory]` — the seven other planned collectors
-  (`processes`, `disk`, `services`, `logs`, `network`, `scheduled_jobs`,
-  `permissions`) don't exist yet (per `CHECKLIST.md`), so `collector_count`
-  is currently always `2`.
+- **Only three collectors are registered.** `_REGISTERED_COLLECTORS` is
+  `[system, cpu_memory, processes]` (Phase 3.5B added `processes`) — the
+  six other planned collectors (`disk`, `services`, `logs`, `network`,
+  `scheduled_jobs`, `permissions`) don't exist yet (per `CHECKLIST.md`),
+  so `collector_count` is currently always `3`.
 
 None of these are bugs — they're the smallest useful implementation that
 proves the architecture works, per this task's explicit objective. A
@@ -216,21 +218,22 @@ that schema doc to reflect the simpler shape actually built.
 
 - **Unit tests** (`tests/core/test_coordinator.py`, 11 tests): use fake
   "collector modules" (simple objects with a `collect(context)` function
-  and a dotted `__name__`) instead of the real `system`/`cpu_memory`
-  collectors, so these tests verify the coordinator's own orchestration
-  logic — every collector runs, data is assembled under the right key,
-  errors aggregate correctly, a crash in one collector doesn't stop the
-  next, metadata is populated correctly (including the `hostname`
-  fallback to `None`), and `_validate_snapshot` both passes and fails as
-  expected.
+  and a dotted `__name__`) instead of the real `system`/`cpu_memory`/
+  `processes` collectors, so these tests verify the coordinator's own
+  orchestration logic — every collector runs, data is assembled under the
+  right key, errors aggregate correctly, a crash in one collector doesn't
+  stop the next, metadata is populated correctly (including the
+  `hostname` fallback to `None`), and `_validate_snapshot` both passes
+  and fails as expected.
 - **Integration test** (`tests/core/test_coordinator_integration.py`, 1
-  test): calls the real `run_scan()` with the real `system` and
-  `cpu_memory` collectors, no mocking at all, automatically skipped
-  unless running on Linux. Verified by copying the code to the Multipass
-  Ubuntu 24.04 VM (`main-cattle`), installing `pytest` there, and running
-  the full 60-test suite — all 60 passed, including this one running for
-  real, producing a genuine, complete, error-free snapshot (see the
-  Example Assembled Snapshot in this session's final output).
+  test): calls the real `run_scan()` with the real `system`,
+  `cpu_memory`, and `processes` collectors, no mocking at all,
+  automatically skipped unless running on Linux. Verified by copying the
+  code to the Multipass Ubuntu 24.04 VM (`main-cattle`), installing
+  dependencies there, and running the full 88-test suite (Phase 3.5B) —
+  all passed, including this one running for real, producing a genuine,
+  complete, error-free snapshot with 91 real processes (see
+  `docs/process_collector.md`).
 
 ---
 

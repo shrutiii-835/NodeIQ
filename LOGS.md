@@ -1330,3 +1330,200 @@ differently in two places.
   `TypedDict` decision for snapshot section shapes; `permissions`
   collector scope; `CONTEXT.md` Section 6 clarifying note (optional);
   Multipass setup docs in `README.md`.
+
+---
+
+## 2026-07-15 — Phase 3.5B: Process Collector Implementation
+
+**Task**
+
+Implement the first version of the Process Collector, following the
+design approved in Phase 3.5A (`docs/process_collector_design.md`). The
+third real Linux collector: `process_count`, `zombie_count`,
+`blocked_process_count` (state `D`), and the top 10 processes by memory
+(`top_by_memory`), reading only `/proc/<pid>/status`, `cmdline`, and
+`comm` directly — `ps` is never invoked, and `/proc/<pid>/stat` is
+intentionally not parsed in v1. Registered with the coordinator and
+verified end to end on the Multipass VM.
+
+**Files created**
+
+- `src/nodeiq/collectors/processes.py` — `collect(context) ->
+  CollectorResult` plus private helpers: `_error_entry` (matching
+  `system.py`/`cpu_memory.py`'s), `_discover_pids` (lists `/proc`'s
+  numbered directory entries, raising `ValueError` only if `/proc`
+  itself can't be listed at all), `_read_process` (reads one PID's
+  `status`/`comm`/`cmdline`, returning `None` if the process has
+  disappeared or its `status` is malformed), pure parsing helpers
+  `_parse_status`/`_parse_state`/`_parse_vmrss`/`_parse_uid`/
+  `_parse_cmdline`, `_resolve_owner` (UID → username via `pwd.getpwuid`,
+  falling back to the numeric UID string), and `_summarize` (turns the
+  full per-process list into the four summary fields actually returned).
+- `tests/collectors/test_processes.py` — 24 unit tests: every `_parse_*`
+  function tested with literal sample text (including the kernel-thread
+  edge cases — absent `VmRSS`, empty `cmdline`); `_discover_pids` and
+  `_read_process` tested via a monkeypatched `_PROC_ROOT` pointing at
+  `tmp_path`, including a PID directory that doesn't exist at all and a
+  malformed `status` file; `_resolve_owner` tested for both a successful
+  and a failing `pwd.getpwuid`; `_summarize` tested for zombie/blocked
+  counts and top-10 sorting/capping with more than 10 processes;
+  `collect()` tested end-to-end for the happy path, a disappearing
+  process being skipped without an error entry, and total `/proc`-listing
+  failure producing exactly one error with every field `None`.
+- `tests/collectors/test_processes_integration.py` — 1 integration test
+  calling the real `collect()` with nothing mocked, skipped automatically
+  unless `platform.system() == "Linux"`.
+- `docs/process_collector.md` — responsibilities; why `/proc` was used
+  instead of `ps` (with a real command comparison); why `stat` was
+  intentionally deferred; a detailed "Race Conditions When Scanning
+  Processes" section explaining the discover-then-read race and how
+  `_read_process` handles it; a field-by-field explanation table; "A Note
+  on Naming and Schema Alignment" comparing this implementation against
+  `docs/snapshot_schema.md` Section 5; and a Collector Review Checklist.
+
+**Files modified**
+
+- `src/nodeiq/core/coordinator.py` — `_REGISTERED_COLLECTORS` now
+  `[system, cpu_memory, processes]`; `_REQUIRED_SECTIONS` now includes
+  `"processes"`; `run_scan()`'s docstring example updated to show the
+  `"processes"` key.
+- `src/nodeiq/collectors/__init__.py` — updated to note `processes.py` is
+  now built alongside `system.py` and `cpu_memory.py`.
+- `tests/core/test_coordinator.py` — every test that monkeypatches
+  `_REGISTERED_COLLECTORS` now includes a fake `"processes"` collector
+  (needed for `_validate_snapshot`'s required-section check to keep
+  passing); `collector_count` assertions updated from `2` to `3`.
+- `tests/core/test_coordinator_integration.py` — updated to expect the
+  real `run_scan()` to return a `"processes"` section, `collector_count
+  == 3`, and added assertions on `processes`' real, sane data
+  (`process_count > 0`, non-negative zombie/blocked counts, `top_by_memory`
+  capped at 10).
+- `docs/coordinator.md` — "MVP Simplifications" corrected from "only two
+  collectors registered, `collector_count` always `2`" to three
+  collectors and `3`; snapshot-assembly example, `_validate_snapshot`'s
+  required-key list, and the Testing section's numbers (11 unit tests,
+  now an 88-test full suite) updated for accuracy.
+- `docs/architecture.md` — status line, the `nodeiq.collectors` section
+  heading and body, and `_REGISTERED_COLLECTORS`'s example value updated
+  from "two collectors built" to "three collectors built."
+- `README.md` — folder-structure diagram updated to list
+  `docs/process_collector.md` and to mention `processes.py`.
+- `CHECKLIST.md` — checked off the `processes` collector task under
+  Phase 3.2C (noting what was actually built); added a new "Phase 3.5B —
+  Process Collector Implementation" section (all 6 tasks checked);
+  Progress Summary updated to 67/96 (~70%).
+- `ROADMAP.md` — Current Milestone moved to Phase 3.5B (complete);
+  Upcoming Milestone updated to describe the remaining six collectors
+  (`disk`, `services`, `logs`, `network`, `scheduled_jobs`,
+  `permissions`); added a Phase 3.5B summary to "Eventually Completed."
+- `LEARNING_NOTES.md` — added beginner-friendly explanations of: what RSS
+  memory is, why zombie processes matter, why `D`-state processes matter,
+  and why processes can disappear mid-scan.
+
+**Reasoning**
+
+Every design choice here traces directly back to a specific
+recommendation in `docs/process_collector_design.md`, rather than being
+decided fresh: `status`/`cmdline`/`comm` were the three files the design
+recommended (Section 3); `stat` was excluded per the design's own
+reasoning (positional parsing is fragier than named fields, and its main
+payoff — CPU time — isn't usable without the same two-reading strategy
+`cpu_memory.py` already deferred); the four summary fields
+(`process_count`, `zombie_count`, `blocked_process_count`,
+`top_by_memory`) match the design's "Recommended Process Summarization
+Strategy" (Section 8) exactly, including the top-10 default this task's
+own instructions confirmed.
+
+The one genuinely new architectural pattern in this collector — absent
+from every previous one — is the discover-then-read-per-PID structure,
+and with it, a real race condition: a process can exit between
+`_discover_pids` listing it and `_read_process` actually reading its
+files. This is handled at exactly the point the design predicted it
+would need to be (`docs/process_collector_design.md` Section 5):
+`_read_process` catches `OSError` from any of its three file reads and
+returns `None`, and `collect()` simply skips any `None` result — no
+`collection_errors` entry is ever produced for this case, per this
+task's explicit instruction. This is a deliberately different failure
+handling shape from every other anticipated failure in this collector
+(and from every previous collector's failures in general): a disappeared
+process is not treated as data (`None` plus an error entry, the pattern
+`system.py`/`cpu_memory.py` use for their own field failures) — it's
+treated as if that PID was simply never seen, since the alternative
+(counting it, but with the fields it never got a chance to report)
+would be actively misleading.
+
+`owner` resolution follows exactly the graceful-degradation
+recommendation from `docs/process_collector_design.md`'s Open Design
+Question 3: `pwd.getpwuid` is tried first, and a `KeyError` (no matching
+user) falls back to the numeric UID as a string rather than omitting
+`owner` or raising — a raw UID is still real, useful evidence about who
+is running a process, even without a resolved name.
+
+Field-naming/unit divergences from `docs/snapshot_schema.md` Section 5
+(`process_name` vs. `name`, `memory_rss_bytes` vs. `memory_kb`) and the
+two fields not implemented (`memory_percent`, `top_by_cpu`) are recorded
+explicitly in `docs/process_collector.md`'s "A Note on Naming and Schema
+Alignment," following the same established pattern as `system.py` and
+`cpu_memory.py` — not resolved here, since resolving them wasn't part of
+this task's scope and doing so silently would hide a real, still-open
+question.
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** the full project was
+  copied to the Multipass Ubuntu 24.04 VM (`main-cattle`), a venv
+  created, dependencies installed, and the full 88-test suite run for
+  real — all passed, including this collector's own integration test and
+  the coordinator's end-to-end integration test (now covering all three
+  collectors). A real sample snapshot was captured showing 91 real
+  processes, a correctly memory-sorted top 10, and correct owner
+  resolution for multiple real UIDs (`root`, `ubuntu`,
+  `systemd-resolve`) — saved locally to `snapshots/sample_snapshot.json`
+  (gitignored, not committed) for inspection. The temporary copy was
+  removed from the VM afterward.
+- Verified the collector also degrades gracefully on the local macOS dev
+  machine, which has no `/proc` at all: `_discover_pids` raises
+  `ValueError`, `collect()` returns exactly one `collection_errors` entry
+  for `"processes"`, and every summary field comes back `None` — the same
+  shape of graceful degradation `system.py` and `cpu_memory.py` already
+  demonstrate for their own missing-`/proc` case on macOS.
+- **The ADR-012 "three or more collectors" duplication threshold has now
+  been crossed.** `_error_entry` is now duplicated verbatim across
+  `system.py`, `cpu_memory.py`, and `processes.py` — exactly the
+  condition ADR-012 named as the point to revisit extracting a shared
+  helper into `nodeiq.core`, from evidence rather than speculation. This
+  was noted but **not acted on** in this task, since extracting a
+  cross-collector helper wasn't part of this task's explicit scope —
+  flagged explicitly here as a ready-to-do follow-up rather than done
+  silently or ignored.
+- Verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count (`grep -c` for `- [x]`/`- [ ]`): 67 complete, 29 remaining, 96
+  total (~70%).
+- Swept every touched file's headings (`grep -n '^#'`) to confirm
+  sequential, non-duplicated numbering before finishing.
+
+**Future TODOs**
+
+- Phase 3.2C: implement the `disk` + inodes collector next, following
+  `system.py`/`cpu_memory.py`/`processes.py` as templates.
+- Now ready to act on (ADR-012's threshold crossed by this task):
+  extract a shared `_error_entry` helper (and consider the "read file,
+  wrap as ValueError" pattern) into `nodeiq.core`, now that three
+  collectors show the same duplication.
+- Resolve `docs/process_collector_design.md`'s remaining Open Design
+  Questions not settled by this implementation: exact top-N value
+  (currently `10`, not revisited), whether `memory_percent` belongs in a
+  future report generator, whether `command` needs redaction/truncation
+  ahead of Phase 7, whether to add `start_time` once `system.py` collects
+  `boot_time`, and the `_bytes` vs. `_kb` unit convention across
+  `processes` and `cpu_memory`.
+- A future increment could add per-process CPU utilization (via
+  `/proc/<pid>/stat`, requiring two readings apart in time, same as
+  `cpu_memory.py`'s deferred system-wide CPU work) and `top_by_cpu` — see
+  `docs/process_collector.md`'s "Why `stat` Was Intentionally Deferred."
+- Still open from prior entries: `cpu_memory.py`'s field-shape divergence
+  from `docs/snapshot_schema.md` Section 4; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `permissions`
+  collector scope; `CONTEXT.md` Section 6 clarifying note (optional);
+  Multipass setup docs in `README.md`.

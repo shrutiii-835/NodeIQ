@@ -3493,3 +3493,166 @@ the kind of silent failure this project's error-handling philosophy
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-16 — Phase 6C: OpenAI Client
+
+**Task**
+
+Implement one isolated module responsible only for communicating with
+OpenAI — authentication, sending the Prompt Builder's already-built
+prompt, retry, timeout, and translating every SDK failure into a
+project-specific exception. Do not modify the CLI, do not wire
+`nodeiq ask` yet, do not modify the Prompt Builder.
+
+**Files created**
+
+- `src/nodeiq/llm/client.py` — `ask_openai(prompt, *, temperature=0.0)
+  -> str`, the only function that imports the OpenAI SDK anywhere in
+  NodeIQ. Reads `prompt["system"]`/`prompt["user"]` verbatim (never
+  rebuilds or edits them), sends one chat-completion request per
+  attempt (up to `_MAX_ATTEMPTS = 3`, with a fixed `_RETRY_BACKOFF_SECONDS
+  = 1.0` pause between retries), retries only the four genuinely
+  transient SDK failure categories (`APITimeoutError`,
+  `APIConnectionError`, `RateLimitError`, `InternalServerError`) —
+  authentication failures and malformed/empty responses are never
+  retried, since retrying either could never succeed. `_DEFAULT_MODEL
+  = "gpt-4o-mini"` is a fixed module constant (documented reasoning:
+  `ask` only needs to restate/compare already-supplied facts per its
+  own guardrails, not open-ended reasoning, so a smaller, faster,
+  cheaper model is the better fit — see the constant's own docstring
+  for the full argument); `_DEFAULT_TEMPERATURE = 0.0` is the
+  deterministic default, overridable per call via the `temperature`
+  keyword argument. `_extract_answer()` validates the response shape
+  (non-empty `choices`, a present `message`, non-empty/non-whitespace
+  `content`) before returning, raising `LLMResponseError` for anything
+  short of that — no partial/best-effort extraction.
+- `src/nodeiq/llm/exceptions.py` — `LLMError` (base, mirroring
+  `nodeiq.core.exceptions.NodeIQError`/`SnapshotError`'s existing
+  pattern) plus 7 subclasses: `LLMConfigurationError`,
+  `LLMAuthenticationError`, `LLMTimeoutError`, `LLMConnectionError`,
+  `LLMRateLimitError`, `LLMServerError`, `LLMResponseError` — one per
+  failure category this task's Error Handling section listed.
+- `tests/llm/test_client.py` — 31 tests, entirely against a fake
+  `openai.OpenAI` constructor installed via `monkeypatch` (real
+  `httpx.Request`/`httpx.Response` objects are used only to construct
+  genuine SDK exception *instances* the SDK's own constructors require
+  — no real network call is ever made): a normal successful request; a
+  missing/empty API key; an authentication failure (and confirmation
+  it is never retried, and that the configured key never appears in
+  the raised exception's message); a timeout, rate limit, and server
+  error each exhausting all 3 attempts and raising the matching
+  `LLMError` subclass; a transient connection failure that succeeds on
+  a later attempt; a fixed-backoff sleep confirmed between retries; a
+  non-retryable bad-request error; four distinct malformed/empty
+  response shapes (no choices, no message, empty string content,
+  whitespace-only content) — all non-retried; exact content
+  extraction; deterministic default temperature/model; a custom
+  temperature passed through; the request timeout value applied;
+  confirmation the sent messages match `prompt["system"]`/`["user"]`
+  verbatim (and that `prompt_version` is never sent to OpenAI); and a
+  parametrized sweep confirming a fake API key never appears in any of
+  6 different exception types' messages.
+
+**Files modified**
+
+- `requirements.txt` — added `openai>=2.0,<3` and `python-dotenv>=1.2,<2`.
+- `.env.example` — created, containing only
+  `OPENAI_API_KEY=your_openai_api_key_here` (a placeholder, never a
+  real key).
+- `CHECKLIST.md` — split the prior "Phase 6C" placeholder into "Phase
+  6C — OpenAI Client" (9 tasks checked) and a new "Phase 6D — CLI
+  Wiring" (1 task, unchecked, for the remaining real-`ask` work).
+  Progress Summary updated to 160/173 (~92%).
+
+**Reasoning**
+
+Every SDK exception this module can encounter is translated into a
+fixed, project-authored message before it ever reaches a caller —
+`_translate_exhausted_retry()` and every inline `except` clause
+deliberately never interpolates `str(exc)` from the SDK's own
+exception into the message it raises, even though that would have been
+the more conventional, less code, "helpful" thing to do. This is a
+direct, conservative response to the task's "never include an API key
+in exceptions" requirement: rather than trust that an SDK exception's
+own string representation never happens to include sensitive request
+detail, this implementation simply never reflects any part of it back
+to the caller, eliminating the risk entirely rather than merely
+mitigating it.
+
+The four retryable exception types were chosen because each is a
+plausibly transient condition where a second attempt might genuinely
+succeed (a slow network, a momentary rate limit, a temporary 5xx);
+authentication failures and malformed responses were deliberately
+excluded from retry, since retrying either would waste two more
+requests on a failure mode that a retry cannot fix — a wrong API key
+is still wrong on attempt two, and a response `_extract_answer()`
+already rejected as empty/malformed reflects something about that one
+completion, not the network path to get it.
+
+**Important implementation notes**
+
+- **Security review** (dedicated pass, before committing):
+  - `grep -rn "OPENAI_API_KEY"` across the entire repository (excluding
+    `.venv/`) confirms every occurrence is legitimate: `.env.example`'s
+    one placeholder line; `client.py`'s single `os.environ.get(...)`
+    read plus its own docstrings; `exceptions.py`'s docstring; and
+    `test_client.py`'s `monkeypatch.setenv`/`delenv` calls, which only
+    ever set fake, test-only values (`monkeypatch` automatically
+    reverts every change after each test, so nothing leaks between
+    tests or persists in the real environment).
+  - No real `.env` file exists anywhere in the project; `.gitignore`
+    already lists `.env` (confirmed via `git check-ignore -v .env`);
+    `.env.example` itself is correctly *not* ignored (git only matches
+    the exact basename `.env`, not `.env.example`) and contains only
+    the one documented placeholder line.
+  - `grep`-confirmed no `print(...)`/`logging`/`logger` call anywhere
+    in `client.py`/`exceptions.py` — the API key is never printed or
+    logged, by construction, not just by intention.
+  - A parametrized test (`test_api_key_never_appears_in_any_raised_exception`)
+    exercises 6 distinct failure paths with a distinctive fake key
+    value and asserts it never appears in the resulting exception's
+    message — a concrete, automated check, not just a code-review claim.
+  - `grep -rln "^import openai\|^from openai"` across `src/` and
+    `tests/` returns exactly `src/nodeiq/llm/client.py` and its own
+    test file — no OpenAI import exists anywhere else in the codebase.
+  - Confirmed via `git status`/`git diff --stat` that `nodeiq.cli`,
+    `nodeiq.summary`, `nodeiq.report`, and `nodeiq.llm.prompt` are all
+    completely untouched by this phase, per its explicit scope.
+- **Quality review:** no hidden coupling (the only new intra-project
+  dependency is `client.py` importing its own sibling,
+  `nodeiq.llm.exceptions`); no duplicated prompt logic (the prompt is
+  read, never rebuilt); no unnecessary complexity (a fixed-attempt
+  retry loop with a fixed backoff, not an exponential-backoff library
+  or a generic retry framework — nothing yet justifies more than this);
+  no future maintenance red flags identified. No improvement was found
+  worth making before committing.
+- Full local test suite: 386 passed, 10 skipped (355 prior + 31 new).
+  No Multipass VM verification needed — this module has no OS
+  dependency and never runs a real network call in tests.
+- Swept touched files' headings (`grep -n '^#'`) — clean, sequential,
+  Phase 6C/6D correctly nested under Phase 6.
+
+**Future TODOs**
+
+- Phase 6D should wire `nodeiq ask` to call `build_prompt()` then
+  `ask_openai()`, replacing today's placeholder — resolving
+  `docs/cli_design.md` Section 4.3's still-open question about exactly
+  what evidence `ask` hands over, and Section 5.3's proposed exit code
+  `3` ("OpenAI/LLM unavailable") mapping onto this module's `LLMError`
+  subclasses.
+- Phase 6A's eight open questions and `docs/architecture.md`'s refresh
+  remain outstanding, as recorded in the Phase 6A/6B entries above.
+- Still open from prior entries: the two recorded Refactoring
+  Opportunities from Phase 4.1B; field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 6B — Prompt Builder Implementation (complete)
-- **Next Phase:** Phase 6C — OpenAI Client & CLI Wiring (real `nodeiq ask`), or a refactoring sprint for Phase 4.1B's recorded opportunities
-- **Overall Progress:** 151 / 165 tasks complete (~91%)
-- **Completed Tasks:** 151 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B)
-- **Remaining Tasks:** 14 (1 in Phase 2, all of Phase 6C, all of Phases 7–8)
+- **Current Phase:** Phase 6C — OpenAI Client (complete)
+- **Next Phase:** Phase 6D — CLI Wiring (real `nodeiq ask`), or a refactoring sprint for Phase 4.1B's recorded opportunities
+- **Overall Progress:** 160 / 173 tasks complete (~92%)
+- **Completed Tasks:** 160 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C)
+- **Remaining Tasks:** 13 (1 in Phase 2, all of Phase 6D, all of Phases 7–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -246,10 +246,21 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Unit tests (35) covering normal/empty questions, empty evidence, unsupported `evidence_kind`, determinism, prompt versioning, evidence/question preservation, guardrail presence, non-mutation, and Unicode/multiline handling
 - [x] Quality review: confirmed zero coupling to the OpenAI SDK or `nodeiq.cli` (only `import json`), no duplicated prompt text, no hidden mutation
 
-### Phase 6C — OpenAI Client & CLI Wiring
+### Phase 6C — OpenAI Client
 
-- [ ] Add OpenAI SDK dependency and `.env`-based key loading
-- [ ] Wire `ask` command to the OpenAI API (replacing today's placeholder), calling `build_prompt()` for the actual prompt
+- [x] Add OpenAI SDK (`openai`) and `python-dotenv` dependencies to `requirements.txt`
+- [x] Implement `src/nodeiq/llm/client.py`: `ask_openai(prompt, *, temperature=0.0) -> str`, consuming exactly the Prompt Builder's `{system, user, prompt_version}` shape, never rebuilding or modifying it
+- [x] `OPENAI_API_KEY` read only in `client.py` (via `os.environ`, with `.env` support through `python-dotenv`); `.env.example` added with placeholder-only content; missing key raises a project-specific `LLMConfigurationError` with a clear message
+- [x] Implement `src/nodeiq/llm/exceptions.py`: `LLMError` and 7 subclasses translating every SDK failure category (config, auth, timeout, connection, rate limit, server error, malformed/empty response) — no raw SDK exception ever escapes `ask_openai`
+- [x] Implement timeout, a fixed-attempt retry with backoff for transient failures only (timeout/connection/rate-limit/server error — not auth failures or malformed responses), a configurable `temperature` with a deterministic (`0.0`) default, and response validation/extraction
+- [x] Choose and document one default model (`gpt-4o-mini`) as a module-level constant — no runtime model selection
+- [x] Unit tests (31) covering success, missing/invalid key, auth failure (and its non-retry), timeout/rate-limit/server-error retry exhaustion, successful recovery after a transient failure, malformed/empty responses, deterministic defaults, prompt verbatim pass-through, and API-key-never-leaked checks across every exception path
+- [x] Security review: confirmed `OPENAI_API_KEY` is read only in `client.py`, never logged/printed/serialized, `.env` is gitignored, `.env.example` contains only a placeholder, no real secret exists anywhere in the repository
+- [x] Quality review: no hidden coupling, no duplicated prompt logic, no OpenAI imports outside `nodeiq.llm`, no unnecessary complexity
+
+### Phase 6D — CLI Wiring
+
+- [ ] Wire `ask` command to `build_prompt()` + `ask_openai()` (replacing today's placeholder)
 
 ## Phase 7 — Robustness
 

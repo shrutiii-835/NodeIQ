@@ -5,6 +5,7 @@ manually exercise scan -> save -> summarize during development, without
 argparse or any CLI wiring. Orchestrates existing components only; it
 contains no business logic of its own.
 
+
 Usage:
     python dev_summary.py
 """

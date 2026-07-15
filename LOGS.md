@@ -1711,3 +1711,238 @@ failed command).
   `dataclasses` vs. `TypedDict` decision for snapshot section shapes;
   `permissions` collector scope; `CONTEXT.md` Section 6 clarifying note
   (optional); Multipass setup docs in `README.md`.
+
+---
+
+## 2026-07-15 — Collector Sprint 1: Services, Scheduled Jobs, Permissions
+
+**Task**
+
+Implement three collectors in one sprint, per explicit instruction to
+focus on implementation/correctness/testing/integration and *not*
+perform cross-collector refactoring — any duplication noticed was to be
+recorded under "Refactoring Opportunities" only, deferred to a later
+refactoring sprint:
+
+1. **Services** (`services.py`) — systemd service health via `systemctl`.
+2. **Scheduled Jobs** (`scheduled_jobs.py`) — cron jobs and systemd
+   timers.
+3. **Permissions** (`permissions.py`) — ownership/permission facts for a
+   conservative, fixed path list.
+
+All three registered with the coordinator in the same task. Per this
+task's own documentation-scope instruction, only `CHECKLIST.md` and
+`LOGS.md` are updated here — `README.md`, `ROADMAP.md`, and
+`LEARNING_NOTES.md` are deliberately left untouched, since nothing in
+this sprint constitutes the kind of major architectural change those
+files are reserved for.
+
+**Files created**
+
+- `src/nodeiq/collectors/services.py` — `collect(context) ->
+  CollectorResult` plus `_error_entry`, `_get_service_units`/
+  `_parse_service_units` (runs `systemctl list-units --type=service
+  --all`), `_summarize_services` (running/failed counts,
+  `failed_services`, `restarting_services` via sub-state
+  `auto-restart`), and `_get_unit_file_states`/`_parse_unit_files` (runs
+  `systemctl list-unit-files --type=service`, for
+  `enabled_services_count`). `systemd_available` (DECISIONS.md ADR-010)
+  is `False` only if the first command fails outright.
+- `src/nodeiq/collectors/scheduled_jobs.py` — `collect(context) ->
+  CollectorResult` plus `_error_entry`, `_get_system_cron_jobs`/
+  `_parse_system_crontab_line` (reads `/etc/crontab` and every file in
+  `/etc/cron.d/`), `_get_user_cron_jobs`/`_parse_user_crontab_line`
+  (reads every accessible file in `/var/spool/cron/crontabs/`), and
+  `_get_systemd_timers`/`_parse_list_timers` (runs `systemctl
+  list-timers --all`, extracting only the timer name and activated
+  service — the last two tokens on each line — deliberately not parsing
+  the fragile human-formatted NEXT/LAST date columns).
+- `src/nodeiq/collectors/permissions.py` — `collect(context) ->
+  CollectorResult` plus `_error_entry`, `_check_path` (three-outcome
+  `stat()` handling: exists, genuinely doesn't exist, or a real error),
+  `_entry_from_stat`/`_empty_entry`, and `_resolve_owner`/`_resolve_group`
+  (UID/GID → name, falling back to the numeric ID string). Needs no
+  commands at all — checks `/etc/passwd`, `/etc/shadow`, `/etc/ssh`, and
+  `/var/log`.
+- `tests/collectors/test_services.py` (11 tests), `test_scheduled_jobs.py`
+  (16 tests), `test_permissions.py` (10 tests) — parsing, merge/summary
+  logic, and `collect()` end-to-end (happy path and every partial-failure
+  mode) for each collector, all mocked or redirected to `tmp_path`.
+- `tests/collectors/test_services_integration.py`,
+  `test_scheduled_jobs_integration.py`, `test_permissions_integration.py`
+  — one real, unmocked integration test per collector each, skipped
+  automatically unless `platform.system() == "Linux"`.
+- `docs/services_collector.md`, `docs/scheduled_jobs_collector.md`,
+  `docs/permissions_collector.md` — responsibilities, data-source
+  rationale, error-handling design, schema-alignment notes, and a
+  Collector Review Checklist for each.
+
+**Files modified**
+
+- `src/nodeiq/core/coordinator.py` — `_REGISTERED_COLLECTORS` now
+  `[system, cpu_memory, processes, disk, services, scheduled_jobs,
+  permissions]`; `_REQUIRED_SECTIONS` now includes `"services"`,
+  `"scheduled_jobs"`, and `"permissions"`; `run_scan()`'s docstring
+  example updated to show all three new keys.
+- `src/nodeiq/collectors/__init__.py` — updated to note all three new
+  collectors are now built.
+- `tests/core/test_coordinator.py` — every test that monkeypatches
+  `_REGISTERED_COLLECTORS` now includes fake `"services"`,
+  `"scheduled_jobs"`, and `"permissions"` collectors; `collector_count`
+  assertions updated from `4` to `7`.
+- `tests/core/test_coordinator_integration.py` — updated to expect the
+  real `run_scan()` to return `"services"`, `"scheduled_jobs"`, and
+  `"permissions"` sections, `collector_count == 7`, and added assertions
+  on each new section's real, sane data.
+- `CHECKLIST.md` — checked off the `services`, `scheduled_jobs`, and
+  `permissions` collector tasks under Phase 3.2C; added a new "Collector
+  Sprint 1" section (all 7 tasks checked); Progress Summary updated to
+  85/110 (~77%).
+
+**Reasoning**
+
+Each collector's data-gathering strategy follows a precedent already
+established by an earlier collector, rather than inventing a new
+approach: `services.py` runs two independent `systemctl` invocations and
+merges them, the same "two independent command-based sources, one
+whose total failure means total failure, one whose failure only costs
+part of the output" shape `disk.py` already established for `df -P -B1`/
+`df -P -i`. `scheduled_jobs.py` reads cron files directly rather than
+shelling out to `crontab -l`, matching `PROJECT_RULES.md` Section 9
+(item 7)'s standing preference for a direct interface over a command
+wrapper — the same reasoning `system.py` and `cpu_memory.py` already
+applied to `/proc` files, just applied here to on-disk cron files
+instead. `permissions.py` needs no commands at all, extending that same
+principle to its natural conclusion, and reuses `processes.py`'s
+UID-resolution pattern (extended with the equivalent GID lookup).
+
+The most interesting new design decision was in `scheduled_jobs.py`:
+`systemctl list-timers`'s NEXT/LAST columns are human-formatted,
+locale-dependent absolute-plus-relative time strings ("3h 48min",
+"9min ago") that would be fragile to parse positionally. Rather than
+attempting that parsing (or skipping timers whose format looked unusual),
+`_parse_list_timers` takes advantage of a simpler, robust fact: a
+timer's own name and the service it activates are *always* the last two
+whitespace-separated tokens on every line, regardless of what precedes
+them, since unit names never contain spaces. This sidesteps the whole
+date-parsing problem entirely and is recorded as an intentional
+deferral (not a silent omission) of `next_run`/`last_run`, per
+`docs/snapshot_schema.md` Section 10.
+
+`permissions.py`'s `_check_path` distinguishes **three** outcomes, not
+two: a path existing (full data), a path genuinely not existing
+(`exists: False`, no error — a real, valid fact), and a path that
+couldn't be `stat()`-ed for another reason (`exists: None`, *with* an
+error entry). Collapsing the second and third into one `exists: False`
+would have repeated exactly the mistake `PROJECT_RULES.md` Section 7
+warns against — conflating "the system genuinely has none of this" with
+"we couldn't check."
+
+Personal crontabs (`/var/spool/cron/crontabs/`) were read directly
+rather than via `crontab -l -u <user>`, specifically because real
+permissions on this directory (`drwx-wx--T root crontab`) mean even a
+`crontab`-group member can't *list* it directly — only the privileged
+`crontab` command can. This was verified for real on the Multipass VM:
+listing the directory as the non-root `ubuntu` user genuinely fails
+with `Permission denied`, confirming this is the actual, expected access
+boundary this collector needed to handle gracefully, not a hypothetical
+edge case.
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** real `systemctl
+  list-units`/`list-unit-files`/`list-timers` output, real
+  `/etc/crontab`/`/etc/cron.d/*` content, and real
+  `/var/spool/cron/crontabs/` permissions were all pulled from the
+  Multipass VM (`main-cattle`) *before* writing any parser, including
+  confirming the non-root permission-denied case for the cron spool
+  directory. The full project was then copied to the VM (via a clean,
+  `rsync`-filtered local copy excluding `.git`/`.venv`, with an explicit
+  pause after removing any stale prior copy — the same procedure
+  established in the Phase 3.6 entry after an earlier transfer race) and
+  the full 151-test suite was run for real — all passed, including all
+  six new collector tests (unit + integration, three collectors) and the
+  coordinator's end-to-end integration test (now covering all seven
+  collectors). A real, complete, error-free snapshot was captured
+  showing 54 running services (0 failed, 45 enabled), 8 real system cron
+  jobs correctly attributed to their source files, 17 real systemd
+  timers, and all four permission-checked paths present with correct
+  ownership (including `/etc/shadow` at `root:shadow`, mode `640`).
+  Saved locally to `snapshots/sample_snapshot.json` (gitignored, not
+  committed). The temporary copy was removed from the VM afterward.
+- Verified all three collectors also degrade gracefully on the local
+  macOS dev machine: `services.py` correctly reports
+  `systemd_available: False` (no `systemctl`); `scheduled_jobs.py`
+  correctly reports zero cron jobs (no `/etc/crontab`/`/etc/cron.d` on
+  this Mac) alongside a real recorded error for the failing
+  `list-timers` call; `permissions.py` — needing no subprocess at all —
+  works natively on macOS, correctly reporting real `/etc/passwd`,
+  `/etc/ssh`, and `/var/log` data and `/etc/shadow` as `exists: False`
+  (macOS has no such file).
+- **A test bug caught and fixed during this task:** the first version of
+  `test_collect_continues_past_a_path_that_cannot_be_checked` in
+  `test_permissions.py` monkeypatched `permissions._check_path` with a
+  fake that, for its non-error branch, called `permissions._check_path`
+  again — which by then referred to the *replacement* itself, causing
+  infinite recursion. Fixed by capturing the real function into a local
+  variable before patching and calling that instead.
+- Quality review performed on all three collectors per this task's
+  explicit request, without refactoring — see Refactoring Opportunities
+  below, all deliberately left for a later, dedicated refactoring
+  sprint.
+- Verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count (`grep -c` for `- [x]`/`- [ ]`): 85 complete, 25 remaining, 110
+  total (~77%).
+- Swept every touched file's headings (`grep -n '^#'`) to confirm
+  sequential, non-duplicated numbering before finishing.
+
+**Refactoring Opportunities (recorded only, not acted on this sprint)**
+
+1. **`_error_entry` is now duplicated verbatim across all seven real
+   collectors** (`system.py`, `cpu_memory.py`, `processes.py`,
+   `disk.py`, `services.py`, `scheduled_jobs.py`, `permissions.py`).
+   Far past ADR-012's "three or more" threshold — a strong candidate to
+   extract into a shared `nodeiq.core` helper in the dedicated
+   refactoring sprint.
+2. **`_resolve_owner` (UID → username, falling back to the numeric UID
+   string on `KeyError`) is now duplicated verbatim between
+   `processes.py` and `permissions.py`.** `permissions.py`'s
+   `_resolve_group` is the same shape again, one level over (GID →
+   group name). All three could plausibly share one small
+   `nodeiq.core` helper.
+3. **The "command failed" error-message construction** (`f"{'
+   '.join(command)} failed: {result.error or result.stderr.strip()}"`)
+   is now duplicated across `system.py`, `disk.py`, `services.py`
+   (twice), and `scheduled_jobs.py` — a candidate for a shared
+   `_command_failure_message(command, result)` helper.
+4. **`scheduled_jobs.py`'s `_parse_system_crontab_line` and
+   `_parse_user_crontab_line` share about 10 lines of near-identical
+   structure** (schedule extraction, `@special` handling) — kept
+   separate deliberately for readability (`PROJECT_RULES.md` Section 3
+   favors explicit over clever), but the duplication is real and worth
+   revisiting.
+5. **`services.py` and `disk.py` share a recurring structural shape**:
+   two independent command-based data sources, where one's total
+   failure means total failure and the other's failure only costs part
+   of the output. Not literal code duplication, but an emerging pattern
+   worth naming/documenting explicitly if a fourth collector repeats it.
+
+**Future TODOs**
+
+- Phase 3.2C: implement the `logs` and `network` collectors next —
+  `logs` will need a bounded/truncated `journalctl` read
+  (`docs/snapshot_schema.md` Section 8's `truncated` flag) and secret
+  redaction is a real, non-hypothetical concern there ahead of Phase 7;
+  `network` will need `ss`/`ip` parsing.
+- A dedicated refactoring sprint should work through this entry's five
+  Refactoring Opportunities, now that seven real collectors exist to
+  draw genuine, evidence-based shared abstractions from (per ADR-012's
+  own "extract from evidence, not speculation" principle).
+- Still open from prior entries: field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py` vs. `docs/snapshot_schema.md`;
+  `docs/process_collector_design.md`'s remaining Open Design Questions;
+  per-process CPU utilization and `top_by_cpu`; `docs/disk_collector.md`'s
+  deferred `filesystem_type`; `PROJECT_RULES.md` Section 8 (Logging
+  Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs. `TypedDict`
+  decision for snapshot section shapes; `CONTEXT.md` Section 6
+  clarifying note (optional); Multipass setup docs in `README.md`.

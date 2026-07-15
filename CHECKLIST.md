@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.6 — Disk & Inodes Collector (complete)
-- **Next Phase:** Phase 3.2C continues (next: `services` collector)
-- **Overall Progress:** 75 / 103 tasks complete (~73%)
-- **Completed Tasks:** 75 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 4 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6)
-- **Remaining Tasks:** 28 (1 in Phase 2, 5 in Phase 3.2C, all of Phases 4–8)
+- **Current Phase:** Collector Sprint 1 — Services, Scheduled Jobs, Permissions (complete)
+- **Next Phase:** Phase 3.2C continues (next: `logs` and `network` collectors)
+- **Overall Progress:** 85 / 110 tasks complete (~77%)
+- **Completed Tasks:** 85 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 7 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1)
+- **Remaining Tasks:** 25 (1 in Phase 2, 2 in Phase 3.2C, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -91,11 +91,11 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] CPU + memory collector (`cpu_memory`: memory/swap usage from `/proc/meminfo`, load averages from `/proc/loadavg` — CPU utilization percentages deferred; module renamed from `resource.py` to `cpu_memory.py` in Phase 3.4 to match `docs/snapshot_schema.md` Section 4; field-shape divergence — flat byte fields vs. nested kB, no `core_count` — still not reconciled, see `docs/cpu_memory_collector.md`)
 - [x] Processes collector (`processes`: process_count, zombie_count, blocked_process_count (state `D`), top_by_memory — reads only `/proc/<pid>/status`, `cmdline`, `comm`, no `ps`; `stat` deferred; disappearing processes skipped gracefully; see `docs/process_collector.md`)
 - [x] Disk + inodes collector (`disk`: total_bytes/used_bytes/available_bytes/usage_percent plus inode_total/inode_used/inode_available/inode_usage_percent per filesystem, merged from `df -P -B1` and `df -P -i`; highest_disk_usage_percent/highest_inode_usage_percent computed; field-shape divergence from `docs/snapshot_schema.md` Section 6 not reconciled, see `docs/disk_collector.md`)
-- [ ] Services collector (`services`)
+- [x] Services collector (`services`: running/failed/enabled counts, failed_services, restarting_services, `systemd_available` graceful degradation — from `systemctl list-units`/`list-unit-files`; see `docs/services_collector.md`)
 - [ ] Logs collector (`logs`)
 - [ ] Network collector (`network`)
-- [ ] Scheduled jobs collector (`scheduled_jobs`: cron + systemd timers)
-- [ ] Permissions collector (`permissions` — scope open, see `docs/snapshot_schema.md` Section 11)
+- [x] Scheduled jobs collector (`scheduled_jobs`: cron_jobs (system + user-accessible) + systemd_timers, from `/etc/crontab`/`/etc/cron.d/*`/`/var/spool/cron/crontabs/*` + `systemctl list-timers`; timer next_run/last_run deferred; see `docs/scheduled_jobs_collector.md`)
+- [x] Permissions collector (`permissions`: checked_paths for `/etc/passwd`, `/etc/shadow`, `/etc/ssh`, `/var/log` — exists/owner/group/mode/world_writable, no subprocess; conservative v1 scope, not a security audit; see `docs/permissions_collector.md`)
 
 ### Phase 3.4 — Coordinator MVP
 
@@ -133,6 +133,16 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Register `disk` with the coordinator (`_REGISTERED_COLLECTORS`, `_REQUIRED_SECTIONS`)
 - [x] Unit tests (parsing, merge logic, `collect()`) and an integration test verified on the Multipass VM (full 111-test suite passing)
 - [x] Document the collector (`docs/disk_collector.md`)
+
+### Collector Sprint 1 — Services, Scheduled Jobs, Permissions
+
+- [x] Implement `collectors/services.py`: `systemctl list-units` + `list-unit-files`, `systemd_available` graceful degradation (DECISIONS.md ADR-010)
+- [x] Implement `collectors/scheduled_jobs.py`: system + user-accessible cron jobs, systemd timers (next_run/last_run intentionally deferred — fragile date parsing)
+- [x] Implement `collectors/permissions.py`: conservative fixed path list, three-state exists/owner/group/mode/world_writable, no subprocess
+- [x] Register all three with the coordinator (`_REGISTERED_COLLECTORS`, `_REQUIRED_SECTIONS`)
+- [x] Unit tests and integration tests for all three collectors, verified on the Multipass VM (full 151-test suite passing)
+- [x] Document all three collectors (`docs/services_collector.md`, `docs/scheduled_jobs_collector.md`, `docs/permissions_collector.md`)
+- [x] Quality review of all three collectors; duplication recorded as Refactoring Opportunities only, not refactored (per this sprint's explicit scope)
 
 ## Phase 4 — Report Generation
 

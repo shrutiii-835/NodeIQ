@@ -2797,3 +2797,24 @@ clear, repeatable pattern emerged across multiple sections:
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-15 — Added Temporary Developer Utility: dev_summary.py
+
+Added `dev_summary.py` at the project root — a small, temporary
+developer-only script (not part of the production CLI, no argparse) that
+orchestrates the existing pipeline for manual testing during development:
+`run_scan()` -> `save_snapshot()` -> `summarize_snapshot()` -> pretty-print
+the Summary and the saved snapshot's path. It contains no business logic
+of its own; it only calls the three already-existing, already-tested
+functions in the order `docs/snapshot_persistence.md` and
+`docs/summary_engine_design.md` already describe.
+
+Verified: ran locally on macOS (collectors degrade gracefully with
+partial data, as designed, since most rely on Linux-only sources) and
+again on the Multipass Ubuntu 24.04 VM (`main-cattle`), where a real
+9-collector scan came back fully healthy end to end — a snapshot file
+was written under `snapshots/`, and the printed Summary showed all 9
+sections `available: true, status: "healthy"` with correct headlines
+(e.g. `"Ubuntu 24.04.4 LTS, kernel 6.8.0-134-generic, up 5h 57m"`).

@@ -61,6 +61,18 @@ def test_parse_message_returns_empty_string_when_missing():
     assert logs._parse_message(None) == ""
 
 
+def test_parse_message_redacts_a_secret():
+    result = logs._parse_message("OPENAI_API_KEY=sk-proj-abcdef123")
+    assert result == "OPENAI_API_KEY=[REDACTED]"
+    assert "sk-proj-abcdef123" not in result
+
+
+def test_parse_message_redacts_a_secret_in_a_decoded_byte_array():
+    raw = list(b"password=hunter2")
+    result = logs._parse_message(raw)
+    assert result == "password=[REDACTED]"
+
+
 # --- _parse_journal_record ---------------------------------------------------------
 
 

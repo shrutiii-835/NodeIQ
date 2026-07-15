@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 from nodeiq.core.collector import CollectorContext, CollectorResult
 from nodeiq.core.errors import error_entry
+from nodeiq.core.redaction import redact_secrets
 from nodeiq.core.runner import command_failure_message, run_command
 
 _MAX_ENTRIES = 100
@@ -159,18 +160,24 @@ def _parse_severity(priority: str | None) -> str:
 
 
 def _parse_message(raw_message) -> str:
-    """Pure function: a journald `MESSAGE` field in, a plain string out.
+    """Pure function: a journald `MESSAGE` field in, a plain,
+    secret-redacted string out.
 
     `MESSAGE` is usually already a string, but journald represents
     non-UTF-8 messages as a JSON array of raw byte values instead — this
     decodes that case gracefully rather than crashing or dropping the
-    entry.
+    entry. Every message is passed through `redact_secrets()` before
+    being returned — this collector's copy of the text is the only
+    thing sanitized; the real journal on disk is never touched
+    (`CONTEXT.md` Section 4, `nodeiq.core.redaction`'s own docstring).
     """
     if isinstance(raw_message, list):
-        return bytes(raw_message).decode("utf-8", errors="replace")
-    if raw_message is None:
-        return ""
-    return str(raw_message)
+        text = bytes(raw_message).decode("utf-8", errors="replace")
+    elif raw_message is None:
+        text = ""
+    else:
+        text = str(raw_message)
+    return redact_secrets(text)
 
 
 def _summarize_entries(entries: list[dict]) -> dict:

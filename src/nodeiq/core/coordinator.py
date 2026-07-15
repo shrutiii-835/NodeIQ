@@ -41,6 +41,8 @@ from nodeiq import __version__ as _NODEIQ_VERSION
 from nodeiq.collectors import (
     cpu_memory,
     disk,
+    logs,
+    network,
     permissions,
     processes,
     scheduled_jobs,
@@ -57,10 +59,13 @@ _REGISTERED_COLLECTORS = [
     services,
     scheduled_jobs,
     permissions,
+    network,
+    logs,
 ]
 """Every collector the coordinator runs, in the order they run. A plain
 list — no registry object, no discovery mechanism, no plugin system.
-Adding a collector to a future scan means adding one line here."""
+Adding a collector to a future scan means adding one line here. This is
+the complete NodeIQ v1 collector set (Collector Sprint 2)."""
 
 _REQUIRED_SECTIONS = (
     "metadata",
@@ -71,6 +76,8 @@ _REQUIRED_SECTIONS = (
     "services",
     "scheduled_jobs",
     "permissions",
+    "network",
+    "logs",
     "collection_errors",
 )
 
@@ -92,6 +99,8 @@ def run_scan() -> dict:
             "services": {...},
             "scheduled_jobs": {...},
             "permissions": {...},
+            "network": {...},
+            "logs": {...},
         }
 
     Never writes to disk — returns a plain dict.

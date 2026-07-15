@@ -1946,3 +1946,230 @@ edge case.
   Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs. `TypedDict`
   decision for snapshot section shapes; `CONTEXT.md` Section 6
   clarifying note (optional); Multipass setup docs in `README.md`.
+
+---
+
+## 2026-07-15 — Collector Sprint 2: Network, Logs (NodeIQ v1 Collector Set Complete)
+
+**Task**
+
+Implement the final two collectors, completing NodeIQ v1's entire data
+collection layer (all 9 collectors from `CONTEXT.md` Section 6 now
+built):
+
+1. **Network** (`network.py`) — interfaces, default route, listening
+   ports, best-effort firewall detection.
+2. **Logs** (`logs.py`) — recent warning/error entries from the systemd
+   journal, bounded and summarized.
+
+Both registered with the coordinator in the same task. Per this task's
+own documentation-scope instruction, only `CHECKLIST.md` and `LOGS.md`
+are updated here — `README.md`, `ROADMAP.md`, and `LEARNING_NOTES.md`
+are deliberately left untouched.
+
+**Files created**
+
+- `src/nodeiq/collectors/network.py` — `collect(context) ->
+  CollectorResult` plus `_error_entry`, `_get_interface_states`/
+  `_parse_interface_states`/`_extract_flags` (runs `ip -o link show`;
+  reads the `<FLAGS>` bracket for up/down, not the `state` keyword, which
+  is `UNKNOWN` for loopback — a real kernel quirk), `_get_interface_addresses`/
+  `_parse_interface_addresses` (runs `ip -o addr show`), `_merge_interfaces`,
+  `_get_default_route`/`_parse_default_route` (runs `ip route show
+  default`), `_get_listening_ports`/`_parse_ss_output`/`_parse_process_field`
+  (runs `ss -tulpn`; handles scoped `%interface` addresses and IPv6
+  bracket addresses via `rpartition`, and a genuinely absent process
+  column when unprivileged), and `_detect_firewall`/`_parse_ufw_status`
+  (tries `ufw`, then `nft`, then `iptables`, in that order; never
+  contributes an error, since none being usable is normal for an
+  unprivileged scan).
+- `src/nodeiq/collectors/logs.py` — `collect(context) -> CollectorResult`
+  plus `_error_entry`, `_get_recent_log_entries`/`_parse_journal_json`
+  (runs `journalctl -p warning -n 100 --no-pager -o json`, one JSON
+  object per line), `_parse_journal_record`/`_parse_timestamp`/
+  `_parse_severity`/`_parse_message` (handles a missing unit field, a
+  non-UTF-8 `MESSAGE` byte-array, and priority-to-severity mapping), and
+  `_summarize_entries` (`warning_count`, `error_count`, and an honest
+  `truncated` flag based on hitting the `_MAX_ENTRIES` cap).
+- `tests/collectors/test_network.py` (25 tests), `test_logs.py` (19
+  tests) — parsing, merge/summary logic, and `collect()` end-to-end
+  (happy path and every partial-failure mode) for each collector, all
+  mocked.
+- `tests/collectors/test_network_integration.py`,
+  `test_logs_integration.py` — one real, unmocked integration test per
+  collector, skipped automatically unless `platform.system() ==
+  "Linux"`.
+- `docs/network_collector.md`, `docs/logs_collector.md` —
+  responsibilities, data-source rationale, real edge cases discovered
+  and handled, error-handling design, schema-alignment notes, and a
+  Collector Review Checklist for each.
+
+**Files modified**
+
+- `src/nodeiq/core/coordinator.py` — `_REGISTERED_COLLECTORS` now
+  `[system, cpu_memory, processes, disk, services, scheduled_jobs,
+  permissions, network, logs]` — all 9 collectors; `_REQUIRED_SECTIONS`
+  now includes `"network"` and `"logs"`; `run_scan()`'s docstring
+  example updated to show both new keys.
+- `src/nodeiq/collectors/__init__.py` — updated to note both new
+  collectors are built and that this is now the complete NodeIQ v1
+  collector set (no further collectors planned).
+- `tests/core/test_coordinator.py` — every test that monkeypatches
+  `_REGISTERED_COLLECTORS` now includes fake `"network"` and `"logs"`
+  collectors; `collector_count` assertions updated from `7` to `9`.
+- `tests/core/test_coordinator_integration.py` — updated to expect the
+  real `run_scan()` to return `"network"` and `"logs"` sections,
+  `collector_count == 9`, and added assertions on each new section's
+  real, sane data.
+- `CHECKLIST.md` — checked off the `logs` and `network` collector tasks
+  under Phase 3.2C (now **complete, all 9 of 9**); added a new
+  "Collector Sprint 2" section (all 6 tasks checked); Progress Summary
+  updated to 93/116 (~80%), noting NodeIQ v1's data collection layer is
+  now complete.
+
+**Reasoning**
+
+`network.py` needed four independent command-based sources merged into
+one result — the most sources any single collector has combined so far.
+Interfaces follow the same two-source-merge-by-key pattern already
+established by `disk.py` (mount point) and now applied to interface
+name; this consistency meant the merge logic itself required no new
+design thinking, only a new key and new fields.
+
+The single most important real-world finding this sprint was that
+**every firewall tool requires root to report its status at all** —
+verified directly on the Multipass VM as the non-root `ubuntu` user:
+`ufw status`, `nft list ruleset`, and `iptables -L -n` all fail with a
+permission error. This confirmed that `_detect_firewall` returning
+`{"tool": None, "enabled": None}` is the *normal*, expected outcome for
+most real scans, not a rare edge case — and is exactly why this path
+never contributes a `collection_errors` entry, unlike every other
+command failure in this collector.
+
+`logs.py` chose `journalctl`'s own `--output=json` mode over its default
+human-oriented text output — the same "prefer the machine-readable
+interface" principle applied throughout this project, here taken to its
+most direct form: journald's own structured export, rather than a flag
+that merely makes text easier to parse (contrast with `ip -o` or
+`systemctl --plain`, which reformat text that still needs parsing).
+This sidestepped what would otherwise have been the hardest parsing
+problem in this sprint (extracting severity, timestamp, and unit name
+from free-form text) by using data journald already structures.
+
+**Important implementation notes**
+
+- **A real bug was found and fixed during this sprint's own quality
+  review, before committing:** `_detect_firewall`'s original `ufw`
+  parsing checked `"active" in first_line.lower()` — which is **wrong**,
+  because the string `"inactive"` itself contains `"active"` as its last
+  six characters. This meant an *inactive* firewall would have been
+  incorrectly reported as `enabled: True`. Caught by manually reasoning
+  through the exact-match requirements during the review pass (not by a
+  failing test — the original test suite only ever exercised the
+  `"active"` case), fixed by extracting a dedicated `_parse_ufw_status`
+  function that compares the exact word after the colon, and two new
+  tests (`test_parse_ufw_status_recognizes_inactive`,
+  `test_collect_detects_ufw_inactive`) were added specifically to guard
+  against this regressing silently in the future. Verified for real on
+  the Multipass VM, whose `ufw` is genuinely inactive:
+  `_parse_ufw_status` now correctly returns `False` for it.
+- **Verified genuinely, not just written to spec:** real `ip -o link
+  show`, `ip -o addr show`, `ip route show default`, `ss -tulpn` (both
+  as root and as an unprivileged user), `ufw status`/`nft list
+  ruleset`/`iptables -L -n` (all three, as both root and unprivileged),
+  and `journalctl -o json` output were all pulled from the Multipass VM
+  *before* writing any parser. The full project was copied to the VM
+  twice this sprint (once before the `ufw` fix, once after, to confirm
+  the fix held) using the same clean `rsync`-filtered transfer procedure
+  established in Phase 3.6/Sprint 1, and the full test suite was run for
+  real both times — 193 passed initially, 197 passed after the fix and
+  its two new tests. A real, complete, error-free snapshot was captured
+  showing 2 real interfaces, a real default route, 7 real listening
+  ports (process names correctly absent — unprivileged), no firewall
+  tool detected (also correctly unprivileged), and 29 real warning
+  journal entries with 0 errors. Saved locally to
+  `snapshots/sample_snapshot.json` (gitignored, not committed). The
+  temporary copy was removed from the VM after each run.
+- Verified both collectors also degrade gracefully on the local macOS
+  dev machine (no `ip`, `ss`, or `journalctl` there): `network.py`
+  returns empty interfaces/routes/ports with `firewall: {tool: None,
+  enabled: None}` and two recorded errors; `logs.py` returns `source:
+  "unavailable"` with every count `None` and one recorded error — the
+  same shape of graceful degradation every previous collector already
+  demonstrates for its own platform-specific gaps.
+- Quality review performed on both collectors per this task's explicit
+  request, focused specifically on parser readability, large-output
+  handling, graceful degradation, and command failures — see
+  Consolidated Refactoring Opportunities below. No shared-code
+  refactoring was performed, per this task's explicit scope.
+- Verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count (`grep -c` for `- [x]`/`- [ ]`): 93 complete, 23 remaining, 116
+  total (~80%).
+- Swept every touched file's headings (`grep -n '^#'`) to confirm
+  sequential, non-duplicated numbering before finishing.
+
+**Consolidated Refactoring Opportunities (recorded only, not acted on)**
+
+Combining this sprint's findings with Collector Sprint 1's, now that
+all 9 collectors exist to draw genuine, evidence-based conclusions from:
+
+1. **`_error_entry` is duplicated verbatim across all 9 real
+   collectors** — every one of `system.py`, `cpu_memory.py`,
+   `processes.py`, `disk.py`, `services.py`, `scheduled_jobs.py`,
+   `permissions.py`, `network.py`, and `logs.py` now has the identical
+   three-line function. This is the strongest, most complete candidate
+   for extraction into a shared `nodeiq.core` helper of anything found
+   across either sprint.
+2. **`_resolve_owner`/`_resolve_group`** (UID/GID → name, falling back
+   to the numeric ID string) remain duplicated between `processes.py`
+   and `permissions.py` — unchanged from Sprint 1, no new instances this
+   sprint.
+3. **The "command failed" error-message construction**
+   (`f"{' '.join(command)} failed: {result.error or
+   result.stderr.strip()}"`) now additionally appears four times in
+   `network.py` (link, addr, route, `ss`) and once in `logs.py`, on top
+   of its existing occurrences in `system.py`, `disk.py`, `services.py`,
+   and `scheduled_jobs.py` — a strong, now-larger candidate for a shared
+   `_command_failure_message(command, result)` helper.
+4. **`scheduled_jobs.py`'s two crontab-line parsers** still share about
+   10 lines of near-identical structure — unchanged from Sprint 1.
+5. **The "two/more independent sources merged, with graduated failure
+   handling" structural shape** now appears in `disk.py`, `services.py`,
+   and `network.py` (interfaces) — a recurring, consistent pattern
+   across three collectors, worth naming/documenting explicitly (e.g. in
+   `docs/collector_guidelines.md`) even without extracting shared code,
+   since new collectors keep reinventing the same shape correctly by
+   imitation rather than by a named, referenceable pattern.
+6. **New this sprint:** `network.py`'s `_detect_firewall` uses a
+   different command-execution style than every other collector — direct
+   sequential `if result.succeeded` checks with early returns, rather
+   than the "raise `ValueError`, catch in `collect()`" pattern used
+   everywhere else in this codebase. This is a deliberate, justified
+   difference (firewall detection never produces an error either way,
+   by design), not a bug, but it means the codebase now has two distinct
+   "try a command, react to the outcome" styles. Worth a brief note in
+   `docs/collector_guidelines.md` distinguishing "this data source can
+   fail" (raise/catch) from "this data source is optional/best-effort"
+   (direct check, no exception) as two recognized, equally valid shapes.
+
+**Future TODOs**
+
+- **Phase 4 — Report Generation** is next: design a human-readable
+  report layout covering all 9 snapshot sections, per `CONTEXT.md`
+  Section 8's phase ordering. All the data collection this report will
+  summarize now exists.
+- A dedicated refactoring sprint should work through this entry's six
+  Consolidated Refactoring Opportunities — item 1 (`_error_entry`) and
+  item 3 (command-failure messages) are now strong enough, evidence-wise
+  (9 and 5 collectors respectively), that ADR-012's "extract from
+  evidence" threshold is thoroughly met.
+- Still open from prior entries: field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  `docs/logs_collector.md`'s and `docs/scheduled_jobs_collector.md`'s
+  deferred timestamp fields; `PROJECT_RULES.md` Section 8 (Logging
+  Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs. `TypedDict`
+  decision for snapshot section shapes; `CONTEXT.md` Section 6
+  clarifying note (optional); Multipass setup docs in `README.md`.

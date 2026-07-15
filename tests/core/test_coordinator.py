@@ -71,6 +71,8 @@ def test_run_scan_executes_every_registered_collector(monkeypatch):
             make_tracking_collector("services"),
             make_tracking_collector("scheduled_jobs"),
             make_tracking_collector("permissions"),
+            make_tracking_collector("network"),
+            make_tracking_collector("logs"),
         ],
     )
 
@@ -84,6 +86,8 @@ def test_run_scan_executes_every_registered_collector(monkeypatch):
         "services",
         "scheduled_jobs",
         "permissions",
+        "network",
+        "logs",
     ]
 
 
@@ -99,6 +103,8 @@ def test_run_scan_assembles_data_from_every_collector_under_its_own_name(monkeyp
             _succeeding_collector("services", {"running_services_count": 10}),
             _succeeding_collector("scheduled_jobs", {"cron_job_count": 5}),
             _succeeding_collector("permissions", {"checked_paths": []}),
+            _succeeding_collector("network", {"interfaces": []}),
+            _succeeding_collector("logs", {"source": "journalctl"}),
         ],
     )
 
@@ -111,6 +117,8 @@ def test_run_scan_assembles_data_from_every_collector_under_its_own_name(monkeyp
     assert snapshot["services"] == {"running_services_count": 10}
     assert snapshot["scheduled_jobs"] == {"cron_job_count": 5}
     assert snapshot["permissions"] == {"checked_paths": []}
+    assert snapshot["network"] == {"interfaces": []}
+    assert snapshot["logs"] == {"source": "journalctl"}
 
 
 def test_run_scan_returns_expected_top_level_sections(monkeypatch):
@@ -125,6 +133,8 @@ def test_run_scan_returns_expected_top_level_sections(monkeypatch):
             _succeeding_collector("services", {}),
             _succeeding_collector("scheduled_jobs", {}),
             _succeeding_collector("permissions", {}),
+            _succeeding_collector("network", {}),
+            _succeeding_collector("logs", {}),
         ],
     )
 
@@ -140,6 +150,8 @@ def test_run_scan_returns_expected_top_level_sections(monkeypatch):
         "services",
         "scheduled_jobs",
         "permissions",
+        "network",
+        "logs",
     }
 
 
@@ -163,6 +175,8 @@ def test_run_scan_aggregates_errors_reported_by_a_collector(monkeypatch):
             _succeeding_collector("services", {}),
             _succeeding_collector("scheduled_jobs", {}),
             _succeeding_collector("permissions", {}),
+            _succeeding_collector("network", {}),
+            _succeeding_collector("logs", {}),
         ],
     )
 
@@ -183,6 +197,8 @@ def test_run_scan_collection_errors_is_empty_when_nothing_went_wrong(monkeypatch
             _succeeding_collector("services", {}),
             _succeeding_collector("scheduled_jobs", {}),
             _succeeding_collector("permissions", {}),
+            _succeeding_collector("network", {}),
+            _succeeding_collector("logs", {}),
         ],
     )
 
@@ -203,6 +219,8 @@ def test_run_scan_continues_and_records_a_crash_when_a_collector_raises(monkeypa
             _succeeding_collector("services", {}),
             _succeeding_collector("scheduled_jobs", {}),
             _succeeding_collector("permissions", {}),
+            _succeeding_collector("network", {}),
+            _succeeding_collector("logs", {}),
         ],
     )
 
@@ -230,13 +248,15 @@ def test_run_scan_populates_metadata_fields(monkeypatch):
             _succeeding_collector("services", {}),
             _succeeding_collector("scheduled_jobs", {}),
             _succeeding_collector("permissions", {}),
+            _succeeding_collector("network", {}),
+            _succeeding_collector("logs", {}),
         ],
     )
 
     snapshot = coordinator.run_scan()
     metadata = snapshot["metadata"]
 
-    assert metadata["collector_count"] == 7
+    assert metadata["collector_count"] == 9
     assert metadata["nodeiq_version"] == nodeiq_version
     assert metadata["hostname"] == "myhost"
     assert metadata["scan_duration_ms"] >= 0
@@ -257,6 +277,8 @@ def test_run_scan_metadata_hostname_is_none_when_system_data_has_no_hostname(
             _succeeding_collector("services", {}),
             _succeeding_collector("scheduled_jobs", {}),
             _succeeding_collector("permissions", {}),
+            _succeeding_collector("network", {}),
+            _succeeding_collector("logs", {}),
         ],
     )
 
@@ -277,6 +299,8 @@ def test_run_scan_metadata_hostname_is_none_when_system_collector_crashes(monkey
             _succeeding_collector("services", {}),
             _succeeding_collector("scheduled_jobs", {}),
             _succeeding_collector("permissions", {}),
+            _succeeding_collector("network", {}),
+            _succeeding_collector("logs", {}),
         ],
     )
 
@@ -299,6 +323,8 @@ def test_validate_snapshot_passes_when_all_required_sections_are_present():
             "services": {},
             "scheduled_jobs": {},
             "permissions": {},
+            "network": {},
+            "logs": {},
             "collection_errors": {},
         }
     )

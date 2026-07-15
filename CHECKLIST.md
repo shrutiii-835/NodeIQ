@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Collector Sprint 1 — Services, Scheduled Jobs, Permissions (complete)
-- **Next Phase:** Phase 3.2C continues (next: `logs` and `network` collectors)
-- **Overall Progress:** 85 / 110 tasks complete (~77%)
-- **Completed Tasks:** 85 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 7 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1)
-- **Remaining Tasks:** 25 (1 in Phase 2, 2 in Phase 3.2C, all of Phases 4–8)
+- **Current Phase:** Collector Sprint 2 — Network, Logs (complete). **All 9 planned Phase 3.2C collectors are now implemented — NodeIQ v1's data collection layer is complete.**
+- **Next Phase:** Phase 4 — Report Generation
+- **Overall Progress:** 93 / 116 tasks complete (~80%)
+- **Completed Tasks:** 93 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2)
+- **Remaining Tasks:** 23 (1 in Phase 2, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -85,15 +85,15 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Update `core/coordinator.py` docstring and `PROJECT_RULES.md` Section 9 (documentation only, no logic changed)
 - [x] Add focused unit tests for `CollectorContext`/`CollectorResult`
 
-### Phase 3.2C — Collectors (Implementation, in progress)
+### Phase 3.2C — Collectors (Implementation, complete — all 9 collectors built)
 
 - [x] System metadata collector (`system`: hostname, operating_system, kernel_version, architecture, uptime_seconds — `os_name`/`os_version` split and `boot_time` deferred, see `docs/system_collector.md`)
 - [x] CPU + memory collector (`cpu_memory`: memory/swap usage from `/proc/meminfo`, load averages from `/proc/loadavg` — CPU utilization percentages deferred; module renamed from `resource.py` to `cpu_memory.py` in Phase 3.4 to match `docs/snapshot_schema.md` Section 4; field-shape divergence — flat byte fields vs. nested kB, no `core_count` — still not reconciled, see `docs/cpu_memory_collector.md`)
 - [x] Processes collector (`processes`: process_count, zombie_count, blocked_process_count (state `D`), top_by_memory — reads only `/proc/<pid>/status`, `cmdline`, `comm`, no `ps`; `stat` deferred; disappearing processes skipped gracefully; see `docs/process_collector.md`)
 - [x] Disk + inodes collector (`disk`: total_bytes/used_bytes/available_bytes/usage_percent plus inode_total/inode_used/inode_available/inode_usage_percent per filesystem, merged from `df -P -B1` and `df -P -i`; highest_disk_usage_percent/highest_inode_usage_percent computed; field-shape divergence from `docs/snapshot_schema.md` Section 6 not reconciled, see `docs/disk_collector.md`)
 - [x] Services collector (`services`: running/failed/enabled counts, failed_services, restarting_services, `systemd_available` graceful degradation — from `systemctl list-units`/`list-unit-files`; see `docs/services_collector.md`)
-- [ ] Logs collector (`logs`)
-- [ ] Network collector (`network`)
+- [x] Logs collector (`logs`: `journalctl -o json` for the last 100 warning-or-worse entries, `warning_count`/`error_count`, `truncated` flag, graceful degradation when the journal is unavailable; see `docs/logs_collector.md`)
+- [x] Network collector (`network`: interfaces (state/IPv4/IPv6) merged from `ip -o link`/`ip -o addr`, default route from `ip route`, listening ports from `ss -tulpn`, best-effort firewall detection (`ufw`/`nft`/`iptables`); see `docs/network_collector.md`)
 - [x] Scheduled jobs collector (`scheduled_jobs`: cron_jobs (system + user-accessible) + systemd_timers, from `/etc/crontab`/`/etc/cron.d/*`/`/var/spool/cron/crontabs/*` + `systemctl list-timers`; timer next_run/last_run deferred; see `docs/scheduled_jobs_collector.md`)
 - [x] Permissions collector (`permissions`: checked_paths for `/etc/passwd`, `/etc/shadow`, `/etc/ssh`, `/var/log` — exists/owner/group/mode/world_writable, no subprocess; conservative v1 scope, not a security audit; see `docs/permissions_collector.md`)
 
@@ -143,6 +143,15 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Unit tests and integration tests for all three collectors, verified on the Multipass VM (full 151-test suite passing)
 - [x] Document all three collectors (`docs/services_collector.md`, `docs/scheduled_jobs_collector.md`, `docs/permissions_collector.md`)
 - [x] Quality review of all three collectors; duplication recorded as Refactoring Opportunities only, not refactored (per this sprint's explicit scope)
+
+### Collector Sprint 2 — Network, Logs (completes the NodeIQ v1 collector set)
+
+- [x] Implement `collectors/network.py`: interfaces (`ip -o link` + `ip -o addr` merged), default route (`ip route show default`), listening ports (`ss -tulpn`), best-effort firewall detection
+- [x] Implement `collectors/logs.py`: `journalctl -p warning -n 100 -o json`, `warning_count`/`error_count`, `truncated` flag, graceful degradation
+- [x] Register both with the coordinator (`_REGISTERED_COLLECTORS`, `_REQUIRED_SECTIONS`) — all 9 collectors now registered
+- [x] Unit tests and integration tests for both collectors, verified on the Multipass VM (full 193-test suite passing)
+- [x] Document both collectors (`docs/network_collector.md`, `docs/logs_collector.md`)
+- [x] Quality review of both collectors; consolidated Refactoring Opportunities recorded (with Collector Sprint 1's), not refactored (per this sprint's explicit scope)
 
 ## Phase 4 — Report Generation
 

@@ -2,14 +2,14 @@
 
 Unlike test_coordinator.py, nothing here is faked — this calls the real
 `run_scan()`, which runs the real `system`, `cpu_memory`, `processes`,
-`disk`, `services`, `scheduled_jobs`, and `permissions` collectors
-against the real machine. That only makes sense on a real Linux system
-(see DECISIONS.md ADR-002: development and integration testing happens
-in a Multipass Ubuntu VM), so this test is skipped automatically
-everywhere else rather than failing for an unrelated reason (e.g. macOS
-has no `/proc` or `/etc/os-release`, so several fields would
-legitimately come back `None` there — not a bug, just not what this test
-is checking).
+`disk`, `services`, `scheduled_jobs`, `permissions`, `network`, and
+`logs` collectors against the real machine — the complete NodeIQ v1
+collector set. That only makes sense on a real Linux system (see
+DECISIONS.md ADR-002: development and integration testing happens in a
+Multipass Ubuntu VM), so this test is skipped automatically everywhere
+else rather than failing for an unrelated reason (e.g. macOS has no
+`/proc` or `/etc/os-release`, so several fields would legitimately come
+back `None` there — not a bug, just not what this test is checking).
 """
 
 import platform
@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(
 def test_run_scan_produces_a_complete_snapshot_on_a_real_linux_system():
     snapshot = run_scan()
 
-    # All seven collectors ran and contributed their own section.
+    # All nine collectors ran and contributed their own section.
     assert set(snapshot.keys()) == {
         "metadata",
         "collection_errors",
@@ -39,6 +39,8 @@ def test_run_scan_produces_a_complete_snapshot_on_a_real_linux_system():
         "services",
         "scheduled_jobs",
         "permissions",
+        "network",
+        "logs",
     }
 
     # On a healthy VM, every collector should succeed completely.
@@ -46,7 +48,7 @@ def test_run_scan_produces_a_complete_snapshot_on_a_real_linux_system():
 
     # metadata is populated with real values.
     metadata = snapshot["metadata"]
-    assert metadata["collector_count"] == 7
+    assert metadata["collector_count"] == 9
     assert metadata["scan_duration_ms"] >= 0
     assert metadata["hostname"] == snapshot["system"]["hostname"]
     assert metadata["nodeiq_version"]
@@ -87,3 +89,14 @@ def test_run_scan_produces_a_complete_snapshot_on_a_real_linux_system():
     # permissions section has real, sane data.
     permissions = snapshot["permissions"]
     assert len(permissions["checked_paths"]) > 0
+
+    # network section has real, sane data.
+    network = snapshot["network"]
+    assert len(network["interfaces"]) >= 1
+    assert "firewall" in network
+
+    # logs section has real, sane data.
+    logs = snapshot["logs"]
+    assert logs["source"] == "journalctl"
+    assert logs["warning_count"] >= 0
+    assert logs["error_count"] >= 0

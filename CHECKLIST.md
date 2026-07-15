@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 4.1B — Summary Engine Implementation (complete)
-- **Next Phase:** Phase 4 continues (report layout/generation) or a refactoring sprint for Phase 4.1B's recorded opportunities
-- **Overall Progress:** 120 / 143 tasks complete (~84%)
-- **Completed Tasks:** 120 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B)
-- **Remaining Tasks:** 23 (1 in Phase 2, rest of Phase 4, all of Phases 5–8)
+- **Current Phase:** Phase 4.2 — Report Formatter (complete)
+- **Next Phase:** A `nodeiq report` CLI command wiring the formatter to a loaded snapshot (Phase 5), or a refactoring sprint for Phase 4.1B's recorded opportunities
+- **Overall Progress:** 127 / 148 tasks complete (~86%)
+- **Completed Tasks:** 127 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2)
+- **Remaining Tasks:** 21 (1 in Phase 2, rest of Phase 4, all of Phases 5–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -194,9 +194,17 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Comprehensive unit tests (53) covering determinism, non-mutation of input, missing/crashed sections, summarizer-failure isolation, status logic per section, headline generation, and full structure conformance; a real, unmocked `run_scan()` integration test (portable — no Linux skip needed, since summarization itself has no OS dependency)
 - [x] Quality review: identified (not yet extracted) duplicated threshold-combination and value-vs-threshold logic across summarizers — recorded as Refactoring Opportunities for the next sprint
 
-- [ ] Design human-readable report layout
-- [ ] Implement report generator (snapshot JSON → readable text)
-- [ ] Cover every snapshot section in the report output
+### Phase 4.2 — Report Formatter
+
+- [x] Implement `report.py`: `format_report(summary) -> str`, presentation-only, no summarization, no data collection
+- [x] Cover every Summary section in the report output (status, headline, highlights; concerns only when present)
+- [x] Missing/unavailable sections render cleanly (no crash, no raw JSON)
+- [x] Update `dev_summary.py`: `run_scan()` → `save_snapshot()` → `summarize_snapshot()` → `format_report()` → `print(report)`
+- [x] Unit tests (28) covering every-section formatting, missing sections, empty highlights/concerns, determinism, non-mutation, no raw JSON leaked
+- [x] Document the formatter (`docs/report_formatter.md`) — separation of Summary vs. Formatter, formatting philosophy, module/naming
+- [x] Quality review: single shared `_format_section` helper, no per-section formatting functions, no speculative abstractions added
+
+- [ ] Design a `nodeiq report` CLI command that wires this formatter to a loaded snapshot (Phase 5)
 
 ## Phase 5 — CLI
 

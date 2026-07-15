@@ -9,24 +9,19 @@ Usage:
     python dev_summary.py
 """
 
-import json
-
 from nodeiq.core.coordinator import run_scan
 from nodeiq.core.snapshot import save_snapshot
+from nodeiq.report import format_report
 from nodeiq.summary import summarize_snapshot
 
 
 def main() -> None:
-    """Run a scan, save it, summarize it, and print the result."""
+    """Run a scan, save it, summarize it, and print the formatted report."""
     snapshot = run_scan()
     saved_path = save_snapshot(snapshot)
     summary = summarize_snapshot(snapshot)
 
-    print("=" * 70)
-    print("NodeIQ Summary")
-    print("=" * 70)
-    print(json.dumps(summary, indent=2))
-    print("=" * 70)
+    print(format_report(summary))
     print(f"Snapshot saved to: {saved_path}")
 
 

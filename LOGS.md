@@ -2873,3 +2873,114 @@ in place and still works independently of the package being installed.
 entry point) directly with `python`/`python3`. This does not change how
 tests are run (`pytest` still works with or without the package
 installed, unchanged from every prior phase).
+
+---
+
+## 2026-07-15 — Phase 4.2: Report Formatter
+
+**Task**
+
+Convert a Summary (Phase 4.1B's `summarize_snapshot()` output) into a
+clean, human-readable terminal report — presentation only, no
+summarization, no data collection, no LLM calls. Still a developer
+utility, not the production CLI.
+
+**Files created**
+
+- `src/nodeiq/report.py` — `format_report(summary: dict) -> str`, plus
+  one private helper (`_format_section`) and a small display-title
+  lookup (`_SECTION_TITLES`, a single entry for `cpu_memory`). Renders a
+  header (host, snapshot timestamp) followed by one block per section:
+  a `<Title> [<STATUS>]` heading, the headline, each highlight as a
+  bullet, and — only when the list is non-empty — a `Concerns:` block.
+  Never prints a section's raw `evidence` dict, never calls
+  `json.dumps`/`repr` on any part of the Summary, and iterates
+  `summary["sections"]` in whatever order it already has (no hardcoded
+  section list), so a future 10th section formats correctly without any
+  change here.
+- `tests/test_report.py` — 28 tests: every field renders correctly (all
+  four `status` values, headline, highlights, concerns); concerns shown
+  only when present, omitted cleanly when empty; empty
+  highlights/concerns produce no stray bullets or placeholder lines;
+  missing `sections` key, an entirely-`None` section, and the standard
+  "unavailable" section shape all render without crashing; sections
+  render in Summary order; `cpu_memory`'s special display title; output
+  is byte-identical across two calls on the same Summary (determinism);
+  input is never mutated; no `{`/`}` or raw `evidence`/`errors` fields
+  ever appear in the rendered text; a full 9-section Summary formats
+  without error.
+- `docs/report_formatter.md` — separation of Summary vs. Formatter,
+  formatting philosophy (presentation only, concerns-only-when-present,
+  no raw JSON, deterministic, graceful on missing data), report shape,
+  module/naming, and quality review.
+
+**Files modified**
+
+- `dev_summary.py` — now calls `format_report(summary)` and prints the
+  formatted report instead of `json.dumps(summary, indent=2)`; the
+  `import json` line was removed since nothing in the file uses it
+  anymore. Pipeline is now exactly `run_scan()` -> `save_snapshot()` ->
+  `summarize_snapshot()` -> `format_report()` -> `print(report)`.
+- `CHECKLIST.md` — added a new "Phase 4.2 — Report Formatter" section
+  (7 tasks checked, 1 new unchecked task recorded: a future `nodeiq
+  report` CLI command); Progress Summary updated to 127/148 (~86%).
+
+**Reasoning**
+
+The Formatter and the Summary Engine are kept strictly separate: the
+Summary Engine decides *what matters* (status, concerns, thresholds —
+all already fixed, deterministic decisions); the Formatter decides *how
+it looks on a terminal* and adds no new judgment of its own. This is the
+same "one layer, one job" pattern already applied twice before
+(collectors don't do presentation work; the Summary Engine doesn't
+gather its own facts) — see `docs/report_formatter.md`'s "Separation of
+Summary vs. Formatter" section for the full argument, including why a
+single fused summarize-and-print function would force every future
+consumer (an OpenAI prompt, a web UI) to re-derive facts the Summary
+Engine already owns exclusively.
+
+A section's `evidence` dict is deliberately never printed — it exists
+for machine consumers, and printing it here would duplicate what
+`headline`/`highlights` already say in readable form (task instruction:
+"never duplicate evidence unnecessarily"). Concerns are shown only when
+the list is non-empty, per the same instruction — an empty `concerns`
+list means "nothing worth flagging," not "print an empty heading."
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** ran `dev_summary.py`
+  locally on macOS (graceful partial-data rendering, several sections
+  `[UNKNOWN]` as expected on a non-Linux host) and again on the
+  Multipass Ubuntu 24.04 VM (`main-cattle`), where a real 9-collector
+  scan produced a fully `[HEALTHY]` report end to end — every section's
+  headline and highlights rendered correctly (e.g. `"CPU & Memory
+  [HEALTHY]" / "Memory 24.5% used"`, `"Network [HEALTHY]" / "2/2
+  interface(s) up, 7 listening port(s)"`). Full VM test suite: 298
+  passed. Local: 288 passed, 10 skipped. Temporary VM copy removed
+  afterward.
+- Confirmed via the test suite that no raw JSON (`{`, `}`) or internal
+  field names (`exception_type`, `severity`, arbitrary `evidence` keys)
+  ever leak into the rendered text.
+- Swept touched files' headings (`grep -n '^#'`) — clean, sequential,
+  Phase 4.2 correctly nested under Phase 4.
+
+**Future TODOs**
+
+- A `nodeiq report` CLI command (Phase 5) should wire
+  `load_latest_snapshot()` -> `summarize_snapshot()` ->
+  `format_report()` together as NodeIQ's first real, non-developer
+  entry point.
+- Still open from prior entries: the two recorded Refactoring
+  Opportunities from Phase 4.1B (the status-combination pattern and the
+  value-vs-two-thresholds pattern across `cpu_memory`/`processes`/`disk`
+  plus `services`/`logs`); field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

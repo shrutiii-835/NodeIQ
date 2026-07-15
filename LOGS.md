@@ -3819,3 +3819,208 @@ for no behavioral difference between them.
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-16 — Phase 7A: User Experience & Platform Awareness
+
+**Task**
+
+Improve NodeIQ's user experience without touching any diagnostic logic
+(collectors, coordinator, Summary Engine, Report Formatter, Prompt
+Builder, OpenAI Client all explicitly off-limits): an interactive shell
+entered by running `nodeiq` with no subcommand, platform detection with
+a friendly refusal on non-Linux systems, better terminal presentation,
+better AI-answer presentation, and a startup banner for the shell only.
+
+**Files created**
+
+- `src/nodeiq/cli/shell.py` — `run_shell()`, entered when `nodeiq` is
+  run with no subcommand. Detects the platform first; on a non-Linux
+  system, prints the exact friendly explanation this task specified and
+  returns immediately (exit `0`) without ever entering the read loop.
+  On Linux, prints the startup banner, then loops: `help` prints usage
+  text; `clear`/`quit`/`exit` behave as expected (`exit`/`quit`
+  case-insensitively); a blank line simply reprompts; anything else is
+  treated as a question and answered via the exact same
+  `nodeiq.llm.ask.answer_question()` the `ask` subcommand already
+  calls — verified structurally, not just by convention, via a test
+  asserting `shell.answer_question is nodeiq.llm.ask.answer_question`
+  (the identical function object, not a re-implementation). `Ctrl+D`
+  (`EOFError`) and `Ctrl+C` (`KeyboardInterrupt`) both exit cleanly at
+  the prompt *and* while a question is in flight (see Quality Review).
+  A single failed question prints a clean error and continues the
+  session rather than ending it.
+- `src/nodeiq/cli/platform_info.py` — `detect_platform()`: OS
+  (`platform.system()`), architecture (`platform.machine()`), and (on
+  Linux) a distribution description read from `/etc/os-release`'s
+  `PRETTY_NAME`. Deliberately independent of
+  `nodeiq.collectors.system._get_os_release()`/`_parse_os_release()` —
+  a small, separate implementation, not an import — since reusing a
+  private collector helper from the CLI layer would introduce a new,
+  previously-nonexistent coupling direction (`nodeiq.cli` depending on
+  `nodeiq.collectors`) for a genuinely different purpose (a one-time
+  UX/startup check vs. populating one snapshot field under a
+  collector's own error-tracking contract).
+- `src/nodeiq/cli/presentation.py` — `SEPARATOR` (matching
+  `nodeiq.report.format_report()`'s own `"=" * 70` header width, so the
+  shell's banner and a report's header read as one consistent visual
+  style, as a literal rather than an import since `nodeiq.report`
+  doesn't export it), `render_banner()` (the shell's startup banner
+  only), and `render_qa()` (a Question/Answer renderer used identically
+  by `nodeiq ask` and the interactive shell — the model's wording in
+  `answer` is never rewritten, only labeled).
+- `src/nodeiq/cli/ask_errors.py` — `format_ask_error()`, extracted from
+  `_cmd_ask`'s previously-inline exception-to-message logic so the
+  interactive shell can use the identical wording without a circular
+  import between `main.py` and `shell.py` (this module imports neither).
+- `tests/cli/test_shell.py` (19 tests), `tests/cli/test_platform_info.py`
+  (13 tests), `tests/cli/test_presentation.py` (8 tests),
+  `tests/cli/test_ask_errors.py` (5 tests) — 43 new tests covering: the
+  unsupported-platform message and its exact refusal to enter the
+  prompt loop; the startup banner's content and shared separator;
+  `exit`/`quit` (case-insensitively) and EOF both ending the session
+  cleanly; a `KeyboardInterrupt` at the prompt *and* one raised from
+  inside `answer_question()` both exiting cleanly without a traceback;
+  `help`/`clear` behavior; blank-line reprompting without calling
+  `answer_question()`; a question calling `answer_question()` and
+  rendering the result; multiple questions in one session; a failed
+  question producing a clean message and continuing the session; every
+  `platform.system()`/`Darwin`/`Windows`/unknown-platform branch of
+  `detect_platform()`; `/etc/os-release` parsing (present, single- vs.
+  double-quoted, missing `PRETTY_NAME`, missing file); `render_banner`/
+  `render_qa`'s exact shape and verbatim-answer preservation; and every
+  `format_ask_error()` message shape.
+
+**Files modified**
+
+- `src/nodeiq/cli/main.py` — `build_parser()`'s subparsers are no
+  longer `required=True`; `main()` now dispatches to `run_shell()` when
+  no subcommand is given. `_cmd_ask` now calls the shared
+  `format_ask_error()`/`render_qa()` instead of its own inline
+  message-building and a bare `print(answer)` — its exit-code mapping
+  (`SnapshotError` -> 1, `LLMError` -> 3, else -> 4) is unchanged. The
+  `ask` subparser's `question` argument, already required since Phase
+  6D, is unaffected.
+- `tests/cli/test_main.py` — updated for the new no-command behavior
+  (parses successfully with `command=None`, rather than erroring) and
+  `ask`'s new Question/Answer rendering (substring checks instead of an
+  exact-equality check against the bare answer text); added a test that
+  `main([])` dispatches to `run_shell()`.
+- `README.md` — added one bullet to "Planned Features" for `nodeiq`
+  with no command entering the interactive shell and its platform
+  behavior — the one narrow, command-usage-driven update this task
+  asked for; the rest of `README.md`'s already-known staleness (Setup
+  Instructions still says "(Future) Run a scan," the folder structure
+  predates `cli`/`llm`/`report.py`/`summary.py` entirely) was left
+  untouched, since fixing it is a separate, larger cleanup outside this
+  task's explicit scope.
+- `CHECKLIST.md` — renamed "Phase 7 — Robustness" to "Phase 7 — UX &
+  Robustness" (since it now has two subsections, only one of which is
+  about robustness) and added "Phase 7A — User Experience & Platform
+  Awareness" (9 tasks checked); the original Phase 7 items were
+  relabeled "Phase 7B — Robustness," content unchanged. Progress
+  Summary updated to 176/188 (~94%).
+
+**Reasoning**
+
+Platform detection was scoped specifically to the interactive shell's
+entry point, not applied as a gate on `scan`/`report`/`ask` themselves
+— a deliberate interpretation, recorded here rather than silently
+assumed. The task's own examples for this feature are all shaped
+around the shell's "front door" experience (the banner, "Type 'help'
+for commands"), and gating the existing subcommands would have been a
+behavior change to code this task explicitly said not to modify
+(collectors/coordinator), plus a real regression for this project's
+own established development workflow — every phase in this project's
+history has run `scan`/`report`/`dev_summary.py` directly on macOS
+during development, relying on the collectors' own existing graceful
+degradation (never a hard refusal). Scoping the platform gate to the
+shell's entry point only preserves that workflow while still fully
+implementing every example this task specified.
+
+"Better terminal presentation... across scan, report, ask, interactive
+mode" was interpreted as "share one consistent presentation vocabulary
+across all four," not "rewrite each command's already-designed,
+already-tested output." `scan`/`report`'s CLI-level confirmation text
+(`_scan_confirmation`) was deliberately left unchanged — it already
+reads cleanly, already has many passing tests asserting specific
+substrings, and this task explicitly forbade touching `nodeiq.report`
+itself (which already uses the exact `"=" * 70` header style this
+phase's new `SEPARATOR` constant matches). The concrete, additive
+presentation work this phase does is the startup banner (genuinely
+new) and the Question/Answer rendering for `ask` (both its single-shot
+and interactive forms — genuinely new, since `ask`'s answer was, until
+this phase, printed completely bare).
+
+**Important implementation notes**
+
+- **Quality review — a real issue found and fixed:** the first
+  implementation only wrapped `input()` itself in a
+  `KeyboardInterrupt`/`EOFError` guard — a `Ctrl+C` raised while
+  `answer_question()` was blocked on a slow OpenAI call would have
+  propagated past `run_shell()`'s own loop entirely, surfacing as an
+  uncaught `KeyboardInterrupt` (a raw traceback) rather than exiting
+  cleanly. Fixed by wrapping the per-question handling in its own
+  `except KeyboardInterrupt` alongside the prompt's own, with a
+  dedicated regression test
+  (`test_keyboard_interrupt_during_a_question_exits_cleanly`) — found
+  and fixed *before* committing, exactly per this task's "improve
+  anything genuinely worthwhile" instruction.
+- **Manual verification, both platforms:** on macOS (this dev
+  machine), `python -m nodeiq` (no subcommand) correctly printed the
+  detected platform (`macOS 26.5.2`, architecture `arm64`) and the
+  exact "NodeIQ v1 currently supports Linux systems only" refusal, exit
+  `0`, without ever prompting. On the Multipass Ubuntu 24.04 VM,
+  `nodeiq` (no subcommand) printed the real banner
+  (`Ubuntu 24.04.4 LTS detected`); a full interactive session
+  (`help` -> `clear` -> a real question -> `exit`, piped via `printf`)
+  ran correctly end to end, including a real, clean
+  `LLMConfigurationError` message (no API key configured on the VM)
+  printed mid-session without ending it, followed by a clean `exit`.
+  Full VM test suite: 457 passed. Local: 448 passed, 10 skipped.
+  **Caught and corrected a real near-miss during this verification:**
+  the `rsync` transfer to the VM initially copied this Mac's real,
+  gitignored `.env` file (containing a genuine `OPENAI_API_KEY`) into
+  the local `/tmp` staging directory, since no `--exclude='.env'` had
+  been added to the transfer command used in earlier phases. Caught
+  before the `multipass transfer` step ran, by explicitly checking for
+  the file's presence and deleting it from the staging directory;
+  confirmed via a second check that it never reached the VM. No secret
+  was exposed to the VM or to git at any point, but this is recorded
+  here as a real process gap: future snapshot/VM transfers in this
+  project should add `--exclude='.env'` to the `rsync` command
+  explicitly, rather than relying on remembering to check afterward.
+- Confirmed no circular import exists between `nodeiq.cli.main` and
+  `nodeiq.cli.shell` — resolved by extracting `format_ask_error()` into
+  its own `nodeiq.cli.ask_errors` module that neither `main.py` nor
+  `shell.py` needs to import from each other for.
+- Swept touched files' headings (`grep -n '^#'`) — clean, sequential,
+  Phase 7A/7B correctly nested under the renamed Phase 7.
+
+**Future TODOs**
+
+- `CONTEXT.md` Section 8 still describes Phase 7 as just "Robustness"
+  — `CHECKLIST.md`'s heading was renamed to "UX & Robustness" this
+  phase, but `CONTEXT.md` itself was intentionally not touched (this
+  task's documentation scope was limited to `CHECKLIST.md`/`LOGS.md`,
+  plus one narrow `README.md` bullet) — a follow-up task should
+  reconcile the two rather than leaving them silently disagreeing.
+- Future `rsync`-based VM transfers should add `--exclude='.env'`
+  explicitly, per the near-miss recorded above.
+- `docs/architecture.md` and the rest of `README.md`'s staleness
+  (flagged since Phase 5A) remain outstanding.
+- Phase 7B (Robustness, the original Phase 7 scope) and Phase 8
+  (Testing) remain entirely unstarted.
+- Still open from prior entries: the two recorded Refactoring
+  Opportunities from Phase 4.1B; field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

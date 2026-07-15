@@ -99,9 +99,9 @@ def test_ask_without_a_question_is_an_invalid_argument():
         cli_main.build_parser().parse_args(["ask"])
 
 
-def test_no_command_is_an_invalid_argument(capsys):
-    with pytest.raises(SystemExit):
-        cli_main.build_parser().parse_args([])
+def test_no_command_parses_successfully_with_none_command():
+    args = cli_main.build_parser().parse_args([])
+    assert args.command is None
 
 
 def test_unknown_command_is_an_invalid_argument():
@@ -139,6 +139,16 @@ def test_main_dispatches_to_ask(monkeypatch, capsys):
 
     assert exit_code == cli_main.EXIT_OK
     assert "the answer" in capsys.readouterr().out
+
+
+def test_main_dispatches_to_interactive_shell_when_no_command_given(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli_main, "run_shell", lambda: calls.append(True) or cli_main.EXIT_OK)
+
+    exit_code = cli_main.main([])
+
+    assert exit_code == cli_main.EXIT_OK
+    assert calls == [True]
 
 
 # --- scan command ---------------------------------------------------------------------
@@ -301,8 +311,11 @@ def test_ask_command_prints_the_answer(monkeypatch, capsys):
 
     exit_code = cli_main._cmd_ask(args)
 
+    out = capsys.readouterr().out
     assert exit_code == cli_main.EXIT_OK
-    assert capsys.readouterr().out.strip() == "Nothing has failed."
+    assert "Question: is anything wrong?" in out
+    assert "Answer:" in out
+    assert "Nothing has failed." in out
 
 
 def test_ask_command_passes_question_and_snapshot_path_through(monkeypatch):

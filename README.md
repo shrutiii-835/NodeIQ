@@ -96,6 +96,10 @@ ask     → load a snapshot, send it + a question to the LLM, get an answer
 - `nodeiq report` — print a human-readable summary of the latest snapshot
 - `nodeiq ask "<question>"` — ask a natural-language question, answered
   strictly from evidence in the snapshot
+- `nodeiq` (no command) — enter an interactive shell: type questions
+  directly at the `>` prompt instead of repeating `nodeiq ask` each time.
+  On startup, detects the platform; on anything other than Linux, explains
+  that NodeIQ v1 is Linux-only and exits cleanly rather than continuing
 - Collectors for: system metadata, CPU, memory, processes, disk, inodes,
   services, logs, network, scheduled jobs, and permissions
 - Robust handling of partial failures, timeouts, missing tools, and secret

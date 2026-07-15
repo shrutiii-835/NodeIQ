@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 6D — AI Integration (complete — Phase 6, LLM Integration, is now fully complete)
-- **Next Phase:** Phase 7 — Robustness, or a refactoring sprint for Phase 4.1B's recorded opportunities
-- **Overall Progress:** 167 / 179 tasks complete (~93%)
-- **Completed Tasks:** 167 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D)
-- **Remaining Tasks:** 12 (1 in Phase 2, all of Phases 7–8)
+- **Current Phase:** Phase 7A — User Experience & Platform Awareness (complete)
+- **Next Phase:** Phase 7B — Robustness, or a refactoring sprint for Phase 4.1B's recorded opportunities
+- **Overall Progress:** 176 / 188 tasks complete (~94%)
+- **Completed Tasks:** 176 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A)
+- **Remaining Tasks:** 12 (1 in Phase 2, all of Phase 7B, all of Phase 8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -268,7 +268,21 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Security review: `OPENAI_API_KEY` still read only in `client.py`; confirmed never appears in CLI output, exceptions, snapshots, or prompts; Prompt Builder and OpenAI Client both unchanged
 - [x] Quality review: CLI remains thin (one call to `answer_question()` plus exception translation, no orchestration duplicated), no duplicated prompt construction, no hidden coupling
 
-## Phase 7 — Robustness
+## Phase 7 — UX & Robustness
+
+### Phase 7A — User Experience & Platform Awareness
+
+- [x] Implement an interactive shell (`nodeiq` with no subcommand) that reuses `answer_question()` for every question — no second `ask` orchestration or prompt-construction path
+- [x] Support `help`, `exit`, `quit`, and `clear` inside the interactive shell; a blank line simply reprompts; `Ctrl+C`/`Ctrl+D` exit cleanly at any point, including mid-question
+- [x] Implement platform detection (`src/nodeiq/cli/platform_info.py`): OS, architecture, and (on Linux) distribution via `/etc/os-release`'s `PRETTY_NAME` — independent of `nodeiq.collectors.system`, no new coupling between the CLI and collector layers
+- [x] On a non-Linux platform, the interactive shell shows a friendly, exact explanatory message and exits cleanly (exit `0`) without ever entering the prompt loop
+- [x] Add a shared Question/Answer renderer (`src/nodeiq/cli/presentation.py`) used identically by `nodeiq ask` and the interactive shell, and a shared error-message translator (`src/nodeiq/cli/ask_errors.py`) used identically by both — so the two can never drift apart in wording
+- [x] Add a startup banner for the interactive shell only (never printed for `scan`/`report`/`ask`), using the same separator width `nodeiq.report.format_report()` already established
+- [x] Unit tests (43 across 4 new test files, plus updates to `tests/cli/test_main.py`) covering the interactive shell, platform detection, presentation, and error translation
+- [x] Quality review: identified and fixed a `KeyboardInterrupt` handling gap (a question in flight wasn't covered, only the prompt itself was); confirmed no duplicated orchestration/prompt construction and no hidden coupling
+- [x] Manual verification on real Linux (Multipass VM) and real macOS (dev machine): correct platform detection and banner/unsupported-platform message in both cases, and a real interactive session exercising `help`/`clear`/a question/`exit`
+
+### Phase 7B — Robustness
 
 - [ ] Apply timeouts to every subprocess call
 - [ ] Handle partial collector failures end-to-end (verify `collection_errors` works in practice)

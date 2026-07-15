@@ -1,21 +1,25 @@
 """NodeIQ's command-line interface.
 
-Implements `docs/cli_design.md` exactly: `scan`, `report`, and `ask`.
-This module is a thin orchestration layer only — it parses arguments
-and calls already-existing functions from `nodeiq.core.coordinator`,
-`nodeiq.core.snapshot`, `nodeiq.summary`, `nodeiq.report`, and
-`nodeiq.llm.ask` in the order each command's design specifies. It
-computes no status, formats no evidence, builds no prompt, and makes no
-decision about what's noteworthy — every one of those already belongs
-to a lower layer. `ask`'s entire pipeline (load a snapshot, summarize
-it, build a prompt, call OpenAI) is one call to
+Implements `docs/cli_design.md` exactly: `scan`, `report`, and `ask` —
+plus, per Phase 7A, an interactive shell entered by running `nodeiq`
+with no subcommand at all. This module is a thin orchestration layer
+only — it parses arguments and calls already-existing functions from
+`nodeiq.core.coordinator`, `nodeiq.core.snapshot`, `nodeiq.summary`,
+`nodeiq.report`, and `nodeiq.llm.ask` in the order each command's
+design specifies. It computes no status, formats no evidence, builds no
+prompt, and makes no decision about what's noteworthy — every one of
+those already belongs to a lower layer. `ask`'s entire pipeline (load a
+snapshot, summarize it, build a prompt, call OpenAI) is one call to
 `nodeiq.llm.ask.answer_question()` — this module never orchestrates
-those four steps itself.
+those four steps itself. Running `nodeiq` with no subcommand dispatches
+to `nodeiq.cli.shell.run_shell()`, which reuses this exact same
+`answer_question()` pipeline for every question typed at its prompt —
+there is no second `ask` implementation anywhere in this project.
 
 Reachable two ways (see docs/cli_design.md Section 3):
 
-    python -m nodeiq <command>      # via src/nodeiq/__main__.py
-    nodeiq <command>                # via the console-script entry point
+    python -m nodeiq [command]      # via src/nodeiq/__main__.py
+    nodeiq [command]                # via the console-script entry point
                                      # in pyproject.toml, after `pip install -e .`
 """
 
@@ -23,6 +27,9 @@ import argparse
 import sys
 from pathlib import Path
 
+from nodeiq.cli.ask_errors import format_ask_error
+from nodeiq.cli.presentation import render_qa
+from nodeiq.cli.shell import run_shell
 from nodeiq.core.coordinator import run_scan
 from nodeiq.core.exceptions import SnapshotError
 from nodeiq.core.snapshot import load_latest_snapshot, load_snapshot, save_snapshot
@@ -47,9 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nodeiq",
         description="Answer natural-language operational questions about "
-        "a Linux server using real system data.",
+        "a Linux server using real system data. Run with no command to "
+        "enter the interactive shell.",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command", required=False)
 
     subparsers.add_parser("scan", help="Collect a fresh snapshot of system state.")
 
@@ -88,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if args.command is None:
+        return run_shell()
     if args.command == "scan":
         return _cmd_scan()
     if args.command == "report":
@@ -160,19 +170,16 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     try:
         answer = answer_question(args.question, snapshot_path=args.snapshot)
     except SnapshotError as exc:
-        print(
-            f"No snapshot found: {exc}\n\nRun:\n\n    nodeiq scan\n\nand try again.",
-            file=sys.stderr,
-        )
+        print(format_ask_error(exc), file=sys.stderr)
         return EXIT_NO_SNAPSHOT
     except LLMError as exc:
-        print(f"Could not get an answer: {exc}", file=sys.stderr)
+        print(format_ask_error(exc), file=sys.stderr)
         return EXIT_LLM_UNAVAILABLE
     except Exception as exc:
-        print(f"Could not complete ask: {exc}", file=sys.stderr)
+        print(format_ask_error(exc), file=sys.stderr)
         return EXIT_INTERNAL_FAILURE
 
-    print(answer)
+    print(render_qa(args.question, answer))
     return EXIT_OK
 
 

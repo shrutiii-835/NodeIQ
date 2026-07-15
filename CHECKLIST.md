@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 5B — CLI Implementation (complete)
-- **Next Phase:** Phase 6 — LLM Integration (real `nodeiq ask`), or a refactoring sprint for Phase 4.1B's recorded opportunities
-- **Overall Progress:** 140 / 156 tasks complete (~90%)
-- **Completed Tasks:** 140 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B)
-- **Remaining Tasks:** 16 (1 in Phase 2, all of Phases 6–8)
+- **Current Phase:** Phase 6A — Prompt Builder & Guardrail Design (complete)
+- **Next Phase:** Phase 6B — LLM Integration Implementation (real `nodeiq ask`), or a refactoring sprint for Phase 4.1B's recorded opportunities
+- **Overall Progress:** 145 / 161 tasks complete (~90%)
+- **Completed Tasks:** 145 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A)
+- **Remaining Tasks:** 16 (1 in Phase 2, all of Phase 6B, all of Phases 7–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -228,10 +228,20 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Phase 6 — LLM Integration
 
+### Phase 6A — Prompt Builder & Guardrail Design (design only, no code)
+
+- [x] Document Prompt Builder responsibilities, module proposal (`src/nodeiq/llm/prompt.py`), and its independence from the CLI/OpenAI client/collectors/coordinator (`docs/prompt_builder_design.md`)
+- [x] Design the prompt flow, the `Prompt` shape, system/user prompt content, evidence formatting, output ordering (system → evidence → question), and a prompt-versioning strategy
+- [x] Design guardrails for hallucination prevention, missing/conflicting evidence, unknown answers, recommendations, cause vs. observation, historical vs. current state, confidence wording, evidence boundaries, and unsupported questions
+- [x] Discuss (without implementing) question-category evidence needs (information/explanation/analysis/comparison/troubleshooting/security) and Summary-vs-Snapshot token trade-offs
+- [x] Quality review: checked for hidden coupling, unnecessary complexity, token waste, maintainability, hallucination risk, and future migration problems; record eight genuine open questions rather than guessing
+
+### Phase 6B — LLM Integration Implementation
+
 - [ ] Add OpenAI SDK dependency and `.env`-based key loading
-- [ ] Design evidence-only prompt template
-- [ ] Wire `ask` command to the OpenAI API
-- [ ] Add guardrails so the LLM only answers from snapshot evidence
+- [ ] Implement the Prompt Builder per `docs/prompt_builder_design.md`
+- [ ] Wire `ask` command to the OpenAI API (replacing today's placeholder)
+- [ ] Implement the guardrails designed in Phase 6A as real system-prompt text
 
 ## Phase 7 — Robustness
 

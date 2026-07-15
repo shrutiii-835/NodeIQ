@@ -3239,3 +3239,128 @@ summarizer) is added, with zero changes needed here.
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-16 — Phase 6A: Prompt Builder & Guardrail Design
+
+**Task**
+
+Design (no code, no API calls) the Prompt Builder that will eventually
+convert a user question plus evidence (the Summary today, possibly the
+raw snapshot later) into an LLM-ready prompt, completely independent of
+the CLI, the OpenAI client, the collectors, and the coordinator. Define
+NodeIQ's AI guardrails explicitly — this is the phase where NodeIQ's
+actual AI behavior gets defined, not just its plumbing.
+
+**Files created**
+
+- `docs/prompt_builder_design.md` — a proposed module
+  (`src/nodeiq/llm/prompt.py`, one pure function,
+  `build_prompt(question, evidence, evidence_kind="summary") -> dict`);
+  a `Prompt` shape (`{system, user, prompt_version}` — a plain dict, not
+  a dataclass, for the same reason the Summary is a plain dict); a
+  prompt flow diagram; full system-prompt and user-prompt content
+  design; evidence-formatting rules (JSON, every field including
+  `errors`, a visible freshness marker from `snapshot_timestamp`/
+  `generated_at`); a prompt-versioning strategy (a single named
+  constant, bumped only on behavior-changing wording); an
+  output-structure section explaining why system precedes evidence
+  precedes question; a 9-subsection Guardrail Design (10.1–10.9)
+  covering every one of the ten dimensions this task asked for
+  (allowed conclusions, forbidden conclusions, when to refuse,
+  uncertainty phrasing with a three-register table, conflicting
+  evidence, historical-vs-current framing, unsupported questions, cause
+  vs. observation restated as one explicit rule, and evidence
+  boundaries as the foundational guardrail); a question-category table
+  (information/explanation/analysis/comparison/troubleshooting/security)
+  assessing Summary-vs-Snapshot sufficiency for each without
+  implementing routing; a Token-Conscious Design section discussing
+  full-Summary vs. relevant-sections-only trade-offs (recommending
+  full-Summary for v1, not implemented); a Future Extensibility
+  section; eight explicitly recorded open questions; and a Quality
+  Review checking for hidden coupling, unnecessary complexity, token
+  waste, maintainability, hallucination risk, and future migration
+  problems.
+
+**Files modified**
+
+- `CHECKLIST.md` — added a new "Phase 6A — Prompt Builder & Guardrail
+  Design" subsection under "Phase 6 — LLM Integration" (5 tasks
+  checked), relabeled the existing 4 unchecked LLM-integration tasks as
+  "Phase 6B — LLM Integration Implementation." Progress Summary updated
+  to 145/161 (~90%).
+
+**Reasoning**
+
+The Prompt Builder is designed with the same "one layer, one job"
+discipline already applied at every layer below it: it owns prompt
+text and evidence serialization only, never calls an LLM, never knows
+which provider will receive its output, and never decides what counts
+as noteworthy (that's already `nodeiq.summary`'s job, one layer down —
+the Prompt Builder is explicitly told to cite a Summary's `status`/
+`concerns` as already-computed facts, not to re-derive its own
+judgment about them). This mirrors `nodeiq.report`'s exact relationship
+to `nodeiq.summary`, applied one layer further out.
+
+The guardrail design treats "cause vs. observation" as the single
+easiest rule to erode gradually in practice, and states it twice: once
+distributed across the specific rules in 10.1/10.2, and once more as
+its own explicit, standalone rule (10.8) — because no NodeIQ v1
+collector ever records a causal claim, this reduces in practice to "the
+model should almost never state a cause for anything," which is worth
+saying plainly rather than leaving as an inference from softer
+language.
+
+The question-category analysis (Section 11) is grounded in a specific,
+already-established rule from `docs/summary_engine_design.md` Section
+8 — "counts and highlights belong in the Summary; full, unbounded detail
+lists stay in the raw snapshot" — rather than a generic guess about
+which questions are "hard." This is what let the analysis conclude,
+concretely, that Comparison-type questions are unanswerable today with
+either evidence source (NodeIQ has no history/diff capability at all
+yet), which is a genuine, checkable fact about the current codebase,
+not speculation.
+
+**Important implementation notes**
+
+- Read `DECISIONS.md` in full (ADR-004 through ADR-014) before writing
+  this design, so the Prompt Builder's shape is consistent with
+  already-made decisions (ADR-005's OpenAI choice, ADR-008's `.env`
+  key management) rather than re-litigating them.
+- Cross-checked `docs/snapshot_schema.md` and the real, current
+  `nodeiq.core.coordinator.run_scan()`/`nodeiq.summary` implementations
+  to confirm the evidence-formatting design (Section 7) matches actual
+  field names (`snapshot_timestamp`, `generated_at`, `logs.truncated`)
+  rather than the schema doc's own already-known-stale field names.
+- Swept `docs/prompt_builder_design.md` and `CHECKLIST.md` headings
+  (`grep -n '^#'`) — clean, sequential, Phase 6A/6B correctly nested
+  under Phase 6.
+- No implementation code was written or changed, per this task's
+  explicit scope — no `src/nodeiq/llm/`, no `requirements.txt` change,
+  no `.env` handling.
+
+**Future TODOs**
+
+- Phase 6B should implement `src/nodeiq/llm/prompt.py` per this design,
+  then wire a real LLM client and replace `_cmd_ask`'s placeholder —
+  resolving `docs/cli_design.md` Section 4.3's still-open question about
+  exactly what evidence `ask` hands to Phase 6 as part of that work.
+- The eight open questions recorded in this document (Section 15)
+  remain open; none were resolved by this design phase, per its own
+  explicit scope.
+- `docs/architecture.md` still needs the refresh flagged in the Phase
+  5A/5B entries — now further out of date still (predates the Summary
+  Engine, Report Formatter, and CLI entirely).
+- Still open from prior entries: the two recorded Refactoring
+  Opportunities from Phase 4.1B; field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

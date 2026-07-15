@@ -10,10 +10,10 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.4 — Coordinator MVP (complete)
-- **Next Phase:** Phase 3.2C continues (next: `processes` collector)
-- **Overall Progress:** 55 / 85 tasks complete (~65%)
-- **Completed Tasks:** 55 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 2 of 9 in Phase 3.2C, all of Phase 3.4)
+- **Current Phase:** Phase 3.5A — Process Collector Design (complete)
+- **Next Phase:** Phase 3.2C continues (next: implement the `processes` collector, following `docs/process_collector_design.md`)
+- **Overall Progress:** 60 / 90 tasks complete (~67%)
+- **Completed Tasks:** 60 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 2 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A)
 - **Remaining Tasks:** 30 (1 in Phase 2, 7 in Phase 3.2C, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
@@ -89,7 +89,7 @@ stay listed (unchecked) until their phase is actually worked on.
 
 - [x] System metadata collector (`system`: hostname, operating_system, kernel_version, architecture, uptime_seconds — `os_name`/`os_version` split and `boot_time` deferred, see `docs/system_collector.md`)
 - [x] CPU + memory collector (`cpu_memory`: memory/swap usage from `/proc/meminfo`, load averages from `/proc/loadavg` — CPU utilization percentages deferred; module renamed from `resource.py` to `cpu_memory.py` in Phase 3.4 to match `docs/snapshot_schema.md` Section 4; field-shape divergence — flat byte fields vs. nested kB, no `core_count` — still not reconciled, see `docs/cpu_memory_collector.md`)
-- [ ] Processes collector (`processes`)
+- [ ] Processes collector (`processes` — design complete, see `docs/process_collector_design.md`; implementation not yet started)
 - [ ] Disk + inodes collector (`disk`)
 - [ ] Services collector (`services`)
 - [ ] Logs collector (`logs`)
@@ -106,6 +106,14 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Add lightweight snapshot validation (`_validate_snapshot`) — no external validation library
 - [x] Coordinator unit tests (fake collectors) and an end-to-end integration test verified on the Multipass VM
 - [x] Document the coordinator (`docs/coordinator.md`)
+
+### Phase 3.5A — Process Collector Design (design only, no code)
+
+- [x] Document how Linux represents processes, `/proc/<pid>` structure, which files NodeIQ should/shouldn't use, and `/proc` vs. `ps` trade-offs (`docs/process_collector_design.md`)
+- [x] Propose the v1 process schema (`pid`, `process_name`, `command`, `state`, `memory_rss_bytes`, `owner`, `start_time`, `threads`) with Source/Why/Required-or-optional for each field
+- [x] Recommend a process summarization strategy (`process_count`, `top_by_memory`, zombie/`D`-state counts; not sending every process to the LLM)
+- [x] Research and document Linux process states (`R`, `S`, `D`, `T`, `Z`) and their operational significance
+- [x] Review `docs/snapshot_schema.md` Section 5's existing `processes` schema against this design and record recommended improvements (not implemented)
 
 ## Phase 4 — Report Generation
 

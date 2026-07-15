@@ -771,3 +771,97 @@ discover and fix it after one collector than after nine — the same
 "catch mistakes on paper, not in code" reasoning from Phase 2's notes,
 just applied one layer up: catch architectural mistakes with two
 collectors, not nine.
+
+---
+
+## Concepts Introduced in Phase 3.5A (Process Collector Design)
+
+### What is a PID?
+
+A **PID** (Process ID) is a whole number the Linux kernel assigns to
+every running process the moment it starts. No two processes running at
+the same time ever share a PID, which is exactly what makes a PID useful
+as a stable "which process do you mean" reference — the same role a
+unique customer ID plays in a database, rather than trying to identify
+someone by name alone (names can collide; PIDs, at any given instant,
+never do). PIDs get reused over time as old processes exit and enough
+numbers cycle around, so a PID only uniquely identifies a process while
+that process is actually running — it's not a permanent, lifetime
+identifier the way a Social Security number is for a person.
+
+### What is `/proc/<pid>`?
+
+This builds directly on "What is `/proc`?" from Phase 3.2C's notes.
+`/proc` doesn't just contain a handful of fixed, system-wide files like
+`/proc/meminfo` — it also contains one numbered directory *per running
+process*, named after that process's PID (`/proc/1`, `/proc/2835`, and
+so on). Each of these directories contains files describing that one
+specific process: its name, whether it's running or waiting, how much
+memory it's using, and more. `cat /proc/2835/status` shows you facts
+about process 2835 specifically, the same way `cat /proc/uptime` shows a
+fact about the whole system.
+
+### Why is every process a directory?
+
+This is the same "everything is a file" philosophy already covered in
+Phase 3.2C's notes, taken one step further: instead of a single
+special-purpose system call for "tell me about process X," Linux exposes
+an entire, structured directory per process, using the exact same
+`ls`/`cat`/`read` operations you'd use on any ordinary folder of text
+files. The practical benefit for NodeIQ: gathering process information
+doesn't need any process-specific library at all — it's the same plain
+file-reading code already used for `/proc/uptime` and `/proc/meminfo`,
+just applied to a directory whose name (the PID) changes from process to
+process, and whose *set* of directories changes over time as processes
+start and exit.
+
+### What are Linux process states?
+
+At any moment, every process is in exactly one of a small number of
+states, reported as a single letter (`R`, `S`, `D`, `T`, or `Z`) in
+`/proc/<pid>/status`. Two are worth understanding well because of what
+they signal operationally:
+
+- **`R` (running/runnable)** and **`S` (sleeping)** are the two states a
+  healthy system spends almost all its time in — actively using the CPU,
+  or idly waiting for something to do. Neither is a problem by itself.
+- **`D` (uninterruptible sleep)** means a process is stuck waiting on
+  I/O — usually disk or network storage — in a way that can't even be
+  interrupted by an operator trying to stop it. A process stuck in `D`
+  for a long time is one of the classic signs of a struggling disk or a
+  hung network filesystem; it's exactly the kind of thing a person would
+  need to already know to specifically go looking for.
+- **`T` (stopped)** means execution is deliberately paused (like pressing
+  Ctrl-Z in a terminal), or a debugger has attached to it.
+- **`Z` (zombie)** means a process already finished running, but its
+  parent process hasn't yet collected ("reaped") its exit status. A
+  zombie itself barely uses any resources — it's just a leftover entry
+  in the process table — but a large or growing number of them is a sign
+  something else (usually a bug in the parent process) is going wrong.
+
+Collecting `state` for every process means these signals — especially
+`D` and `Z`, which are otherwise easy to miss unless you already suspect
+a problem — show up in NodeIQ's evidence automatically, rather than only
+being visible to someone who already knew to check for them.
+
+### Why are process collectors more complex than previous collectors?
+
+`system.py` reads a handful of always-present, fixed files (`/etc/os-release`,
+`/proc/uptime`). `cpu_memory.py` reads two always-present files
+(`/proc/meminfo`, `/proc/loadavg`). Both collectors know exactly which
+files exist before they start — the *set* of things to read never
+changes while the collector runs.
+
+A Process Collector is different in a genuinely new way: it first has to
+**discover** the current, ever-changing list of PIDs (by listing
+`/proc`'s numbered directories), and only then read each one's files.
+Between that discovery step and actually reading a given PID's files, the
+real process might have already exited — its `/proc/<pid>` directory can
+simply vanish out from under the collector mid-scan. This is a genuinely
+new kind of failure mode neither `system.py` nor `cpu_memory.py` ever had
+to handle, because both of them only ever dealt with files the kernel
+guarantees are always there. A Process Collector has to treat "this PID
+disappeared between discovery and reading" as an expected, routine event
+for one process — not an error for the whole scan — which is why
+designing this collector carefully, before writing any code, mattered
+enough to be its own dedicated phase (`docs/process_collector_design.md`).

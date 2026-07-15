@@ -121,7 +121,8 @@ NodeIQ/
 │   ├── collector_guidelines.md
 │   ├── system_collector.md
 │   ├── cpu_memory_collector.md
-│   └── coordinator.md
+│   ├── coordinator.md
+│   └── process_collector_design.md
 ├── snapshots/            # JSON snapshots produced by `nodeiq scan`
 ├── src/
 │   └── nodeiq/           # Application source code (Python package)

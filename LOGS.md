@@ -1188,3 +1188,145 @@ actually trigger.
   reconciliation; `dataclasses` vs. `TypedDict` decision for snapshot
   section shapes; `permissions` collector scope; `CONTEXT.md` Section 6
   clarifying note (optional); Multipass setup docs in `README.md`.
+
+---
+
+## 2026-07-15 — Phase 3.5A: Process Collector Design
+
+**Task**
+
+A design-and-learning-only phase, explicitly not an implementation task:
+study how Linux exposes process information through `/proc`, and design
+the Process Collector for NodeIQ v1 before writing any code. No
+`src/nodeiq/collectors/processes.py`, no tests, and no change to
+`_REGISTERED_COLLECTORS` were written, per this task's explicit scope.
+
+**Files created**
+
+- `docs/process_collector_design.md` — how Linux represents processes and
+  why every PID gets a `/proc/<pid>` directory; a table of the
+  `/proc/<pid>` files NodeIQ should use (`status`, `stat`, `cmdline`,
+  `comm`) versus files intentionally ignored in v1 (`maps`/`smaps`,
+  `environ`, `fd`/`fdinfo`, `mem`, `io`, `task/`, `cwd`/`root`/`exe`), each
+  with a stated reason; a `/proc` vs. `ps` trade-off table; a proposed v1
+  process schema (`pid`, `process_name`, `command`, `state`,
+  `memory_rss_bytes`, `owner`, `start_time`, `threads`), each field with
+  its Source, why it's useful, and whether it's required or optional; a
+  full explanation of the five Linux process states (`R`, `S`, `D`, `T`,
+  `Z`) and their operational significance; a recommended
+  summarize-don't-dump strategy for feeding process data to the LLM
+  (`process_count`, `top_by_memory`, zombie/`D`-state counts, explicitly
+  *not* sending every process's full data); a review of
+  `docs/snapshot_schema.md` Section 5's existing `processes` schema
+  against this design, with recommended (not implemented) improvements; a
+  Quality Review section; and a list of six explicit Open Design
+  Questions left for whatever future task implements `processes.py`.
+
+**Files modified**
+
+- `README.md` — folder-structure diagram updated to list
+  `docs/process_collector_design.md`.
+- `CHECKLIST.md` — added a new "Phase 3.5A — Process Collector Design"
+  section (all 5 tasks checked); updated the still-unchecked `processes`
+  collector line under Phase 3.2C to note the design is now complete and
+  point at the new doc; Progress Summary updated to 60/90 (~67%).
+- `ROADMAP.md` — Current Milestone moved to Phase 3.5A (complete);
+  Upcoming Milestone updated to "implement `processes.py` following the
+  new design doc," then continue with the remaining collectors; added a
+  Phase 3.5A summary to "Eventually Completed."
+- `LEARNING_NOTES.md` — added beginner-friendly explanations of: what a
+  PID is, what `/proc/<pid>` is and why every process gets a directory,
+  the five Linux process states, and why a process collector is
+  structurally more complex than every previous collector.
+
+**Reasoning**
+
+This design closes a real gap the previous two collectors didn't have to
+deal with: `system.py` and `cpu_memory.py` each read a small, fixed set
+of always-present files. The Process Collector instead has to *discover*
+a dynamic, changing set of PIDs first, then read per-PID files that can
+legitimately vanish between the discovery step and the read step (a
+process exiting mid-scan) — this is a structurally new kind of failure
+mode, and the design document calls it out explicitly (Section 5) as
+something to handle per-PID (skip and move on), not as a collector-wide
+error, consistent with this project's existing "partial data beats no
+data" philosophy (`PROJECT_RULES.md` Section 7) but applied one level
+more granular than any previous collector needed.
+
+Following this project's established pattern for handling a real
+divergence between a new design and an earlier, more abstractly-drafted
+document (the same treatment given to `system.py`'s and `cpu_memory.py`'s
+schema divergences), Section 9 of the new doc explicitly compares this
+design against `docs/snapshot_schema.md` Section 5's existing `processes`
+schema rather than silently matching or silently ignoring it. The
+existing schema's summarize-first shape (`process_count`,
+`top_by_memory`, `top_by_cpu`) turned out to already agree with this
+design's own recommendation — a genuine point of alignment, not just a
+gap to flag. The real gap found: the existing schema has no field at all
+for zombie or `D`-state processes, despite Section 7 of the new design
+making the case that `state` is the single most operationally significant
+fact a process can report. This is recorded as a recommended (not
+applied) schema improvement.
+
+The proposed schema also deliberately does **not** include a per-process
+CPU percentage, for the same reason `cpu_memory.py` deferred system-wide
+CPU utilization (`docs/cpu_memory_collector.md`): a percentage requires
+two `/proc` readings taken apart in time and a difference computed
+between them, a meaningfully different collection strategy than every
+other field in this design, which come from a single point-in-time read.
+Deferring it here keeps the deferred-CPU-utilization decision consistent
+across both collectors, rather than solving the same sub-problem
+differently in two places.
+
+**Important implementation notes**
+
+- Real sample data was pulled from the Multipass Ubuntu 24.04 VM
+  (`main-cattle`) before writing any of the design's file-format claims:
+  `/proc/<pid>/status`, `/proc/<pid>/stat`, `/proc/<pid>/cmdline`,
+  `/proc/<pid>/comm`, and `/proc/<pid>/io` were read for a real running
+  process (PID 2835, a `bash` shell), and `/proc/1`'s directory listing
+  and `ps aux` output were captured to ground the `/proc` vs. `ps`
+  comparison in actual output rather than assumed formatting. A real,
+  useful edge case was found this way: kernel threads (e.g. PID 2, `[kthreadd]`)
+  have an empty `cmdline` file — recorded in the design doc as something
+  a future parser must treat as a normal, expected case, not a parsing
+  failure.
+- No zombie process happened to exist on the VM at the time of this
+  session (checked with `ps -eo pid,ppid,stat,comm`), which is itself
+  expected — zombies are normally short-lived, and their absence doesn't
+  change anything about the design (the `Z` state's behavior and
+  operational significance are documented from Linux's own, well-defined
+  semantics, not from having captured a live example).
+- Verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count (`grep -c` for `- [x]`/`- [ ]`): 60 complete, 30 remaining, 90
+  total (~67%).
+- Swept `docs/process_collector_design.md`'s own headings (`grep -n
+  '^#'`) to confirm sequential, non-duplicated numbering before finishing.
+
+**Future TODOs**
+
+- Phase 3.2C: implement `collectors/processes.py`, following
+  `docs/process_collector_design.md`'s recommended schema and
+  summarization strategy, and register it with the coordinator
+  (`_REGISTERED_COLLECTORS`) as part of that task.
+- Phase 3.2C (as part of implementing `processes.py`, or a dedicated
+  follow-up): resolve `docs/process_collector_design.md`'s six Open
+  Design Questions — exact top-N value, whether `memory_percent` belongs
+  in the collector or the future report generator, `owner` lookup-failure
+  behavior, whether `command` needs redaction/truncation ahead of Phase
+  7, whether to add `start_time` once `system.py` collects `boot_time`,
+  and the `_bytes` vs. `_kb` unit convention across `processes` and
+  `cpu_memory`.
+- Recommend updating `docs/snapshot_schema.md` Section 5 to add a
+  zombie/`D`-state count field once `processes.py` is actually
+  implemented, per this design's review (Section 9) — not done now, since
+  this task's scope was design and review, not schema edits.
+- Still open from prior entries: `_error_entry`/"read file, wrap as
+  ValueError" duplication across collectors (revisit once a third
+  collector exists, per ADR-012's threshold — implementing `processes.py`
+  would make this the third); `cpu_memory.py`'s field-shape divergence
+  from `docs/snapshot_schema.md` Section 4; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `permissions`
+  collector scope; `CONTEXT.md` Section 6 clarifying note (optional);
+  Multipass setup docs in `README.md`.

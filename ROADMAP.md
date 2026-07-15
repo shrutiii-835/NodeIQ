@@ -8,30 +8,31 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ## Current Milestone
 
-**Phase 3.4 — Coordinator MVP**
+**Phase 3.5A — Process Collector Design**
 
-The architecture works end to end for the first time:
-`CollectorContext → collectors → CollectorResult → coordinator →
-snapshot`. `run_scan()` (`nodeiq.core.coordinator`) builds one
-`CollectorContext`, runs the two existing collectors (`system.py` and
-`cpu_memory.py` — renamed from `resource.py` to match
-`docs/snapshot_schema.md`), aggregates their errors, builds `metadata`,
-and assembles an in-memory snapshot — verified with both mocked unit
-tests and a real end-to-end integration test on the Multipass Ubuntu
-24.04 VM (see `docs/coordinator.md`). No CLI and no disk-writing exist
-yet.
+A design-only phase (no code): studied how Linux exposes process
+information through `/proc/<pid>`, proposed a v1 process schema
+(`pid`, `process_name`, `command`, `state`, `memory_rss_bytes`, `owner`,
+`start_time`, `threads`), documented the five Linux process states
+(`R`/`S`/`D`/`T`/`Z`) and their operational significance, recommended a
+summarize-don't-dump strategy for feeding process data to the LLM, and
+reviewed `docs/snapshot_schema.md` Section 5's existing `processes`
+schema against this new design (see `docs/process_collector_design.md`
+for the full write-up, including open design questions still unresolved).
+The Process Collector itself is not implemented yet.
 
 ---
 
 ## Upcoming Milestone
 
-**Phase 3.2C continued — Remaining Collectors**
+**Phase 3.2C continued — Implement the Processes Collector**
 
-Implement each remaining Linux data collector independently, following
-`system.py` and `cpu_memory.py` as templates: processes, disk + inodes,
-services, logs, network, scheduled jobs, permissions — registering each
-one with the coordinator (`docs/coordinator.md`) as it's built, so
-`run_scan()`'s snapshot grows one section at a time.
+Implement `collectors/processes.py` following
+`docs/process_collector_design.md`'s plan, then continue with the
+remaining collectors (disk + inodes, services, logs, network, scheduled
+jobs, permissions) — registering each one with the coordinator
+(`docs/coordinator.md`) as it's built, so `run_scan()`'s snapshot grows
+one section at a time.
 
 ---
 
@@ -97,3 +98,8 @@ one with the coordinator (`docs/coordinator.md`) as it's built, so
   `metadata`, and assembles an in-memory snapshot, verified end to end on
   the Multipass VM; `resource.py` renamed to `cpu_memory.py`. See
   `LOGS.md`, "Phase 3.4: Coordinator MVP."
+- **Phase 3.5A — Process Collector Design**: designed (not implemented)
+  the Process Collector — `/proc/<pid>` structure, a proposed v1 schema,
+  process states, and a summarization strategy, plus a review of the
+  existing `processes` schema section. See `docs/process_collector_design.md`
+  and `LOGS.md`, "Phase 3.5A: Process Collector Design."

@@ -873,3 +873,146 @@ fixed at module-import time and unaffected by monkeypatching afterward.
   decision for snapshot section shapes; `permissions` collector scope;
   `CONTEXT.md` Section 6 clarifying note (optional); Multipass setup docs
   in `README.md`.
+
+---
+
+## 2026-07-14 — Phase 3.3: Resource Collector (Memory & Load) v1
+
+**Task**
+
+Implement `resource.py`, the second real Linux collector, following the
+`CollectorContext` → `collect()` → `CollectorResult` pattern established
+by `system.py`. Gathers memory/swap usage from `/proc/meminfo` and load
+averages from `/proc/loadavg` — no commands at all, since a stable kernel
+interface already exists for everything in scope. Per this task's scope,
+no other collector and no scan coordinator implementation were written.
+
+**Files created**
+
+- `src/nodeiq/collectors/resource.py` — `collect(context) ->
+  CollectorResult` plus private helpers: `_error_entry` (error-dict
+  builder, matching `system.py`'s), `_read_proc_file` (shared file-read
+  wrapper for the two `/proc` files), `_get_memory_fields` (with pure
+  `_parse_meminfo` and `_compute_memory_fields`/`_percent` helpers), and
+  `_get_load_average_fields` (with a pure `_parse_loadavg` helper).
+- `tests/collectors/test_resource.py` — 17 unit tests: pure parsing and
+  computation functions tested with literal sample text/dicts (including
+  the real `SwapTotal == 0` edge case observed on the Multipass VM);
+  file-based getters tested via monkeypatched module-level path constants
+  and `tmp_path`; `collect()` tested end-to-end for "everything succeeds,"
+  "memory source fails, load average doesn't," and vice versa.
+- `tests/collectors/test_resource_integration.py` — 1 integration test
+  calling the real `collect()` with nothing mocked, skipped automatically
+  unless `platform.system() == "Linux"`.
+- `docs/resource_collector.md` — responsibilities, why `/proc/meminfo`
+  beats `free` and `/proc/loadavg` beats `uptime` (with real command
+  comparisons), a field-by-field explanation table, explicitly deferred
+  fields (CPU utilization percentages), a "Fields Not Yet Collected"
+  section, an explicit naming/schema-alignment note, and a reusable
+  Collector Review Checklist.
+
+**Files modified**
+
+- `src/nodeiq/collectors/__init__.py` — updated to note `resource.py` is
+  now built alongside `system.py`.
+- `README.md` — folder-structure diagram updated to list
+  `resource_collector.md` and to note `resource.py`.
+- `CHECKLIST.md` — checked off the collector task (renamed inline from
+  "CPU + memory collector" to reflect what was actually built, with the
+  naming/schema divergence noted); Progress Summary updated to 48/79
+  (~61%), Phase 3.2C now 2 of 10 tasks done.
+- `ROADMAP.md` — Current Milestone updated to describe both `system.py`
+  and `resource.py` as built and verified.
+- `LEARNING_NOTES.md` — added beginner-friendly explanations of: what
+  `/proc/meminfo` contains, what load average actually means, why
+  available memory is often more useful than free memory, and the
+  difference between memory usage and CPU load.
+
+**Reasoning**
+
+This collector needed **zero** `run_command` calls — the task explicitly
+required using kernel-provided machine-readable interfaces (`/proc/meminfo`,
+`/proc/loadavg`) instead of commands (`free`, `uptime`) wherever a stable
+one already exists, per `PROJECT_RULES.md` Section 9 (item 7). This is a
+useful confirmation of the collector pattern's flexibility: `collect()`'s
+signature and `CollectorResult`'s shape don't care whether a collector
+uses `run_command` at all, only that it returns the right type.
+
+Error handling granularity here is per **data source**, not per
+individual field, unlike `system.py`. `system.py` had five genuinely
+independent fields (each from its own command or file); `resource.py` has
+two data sources (`/proc/meminfo`, `/proc/loadavg`), each producing
+*several related fields together* — there's no such thing as reading
+`MemTotal` successfully but `MemAvailable` failing, since both come from
+one file read. So `collect()` has two `try`/`except` blocks (one per
+file), not eight, directly matching this task's own instruction: "if one
+data source fails, continue collecting any remaining information."
+
+The naming and shape divergence from `docs/snapshot_schema.md` Section
+4's existing `cpu_memory` section (module name `resource.py` vs.
+`cpu_memory.py`; flat byte-denominated fields vs. nested kB fields; no
+`core_count`) is documented explicitly in `docs/resource_collector.md`
+rather than silently reconciled either way — the same treatment given to
+`system.py`'s `operating_system` field divergence from `os_name`/
+`os_version` in the previous entry. This is now the project's established
+pattern for handling a real implementation task's explicit instructions
+that don't quite match an earlier, more abstractly-designed document.
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** real `/proc/meminfo`
+  and `/proc/loadavg` content was pulled from the Multipass VM
+  (`main-cattle`) *before* writing the parsing code, to confirm the format
+  assumptions (the VM had `SwapTotal: 0`, a genuine no-swap-configured
+  case that directly exercised the division-by-zero guard in `_percent`).
+  The VM had been stopped since the last session and was restarted
+  automatically by `multipass exec`. The full project was then copied to
+  the VM via `multipass transfer`, a venv created, `pytest` installed, and
+  the full 48-test suite run for real — all 48 passed, including both
+  integration tests (`system` and `resource`) actually executing. The
+  temporary copy was removed afterward (`rm -rf ~/nodeiq_test`).
+- **Quality review caught one real, worth-fixing duplication:**
+  `_get_memory_fields` and `_get_load_average_fields` initially repeated
+  an identical three-line "read a `/proc` file, wrap `OSError` as
+  `ValueError`" block *within the same module* — simplified by
+  extracting a shared private `_read_proc_file` helper, mirroring how
+  `system.py`'s three command-based getters already share
+  `_run_and_capture`. This is a within-module simplification, not a new
+  cross-collector abstraction.
+- **Quality review also identified, but deliberately did not fix,**
+  duplication *across* collectors: `_error_entry` is now duplicated
+  verbatim between `system.py` and `resource.py`, and the "read file, wrap
+  as ValueError" shape (now factored inside each module) is conceptually
+  duplicated across both modules too. Per `DECISIONS.md` ADR-012's
+  explicit threshold ("three or more collectors" before extracting a
+  shared helper from evidence), this is noted but not yet extracted into
+  `nodeiq.core` — tracked as a Future TODO for when the third collector is
+  built.
+- Verified the collector also runs correctly on the local macOS dev
+  machine: with no `/proc` at all, both data sources fail gracefully (all
+  eight fields `None`, two clear error entries), confirming the two
+  `try`/`except` blocks are genuinely independent, not just in theory.
+- Re-verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count: 48 complete, 31 remaining, 79 total (~61%).
+
+**Future TODOs**
+
+- Phase 3.2C: implement the `processes` collector next.
+- Phase 3.2C (later): once a third collector is built, revisit whether
+  `_error_entry` and/or the "read file, wrap as ValueError" pattern have
+  shown up often enough (per ADR-012's threshold) to justify extracting a
+  shared helper into `nodeiq.core`.
+- Phase 3.2C (later, or a dedicated follow-up): reconcile `resource.py`'s
+  field names/shape with `docs/snapshot_schema.md` Section 4's original
+  `cpu_memory` section — either update the schema doc to match what was
+  built, or refactor the collector to match the schema.
+- A future increment of `resource.py` could add CPU utilization
+  percentages (from `/proc/stat`, requiring two readings apart in time —
+  a meaningfully different collection strategy from everything else this
+  collector does) — see `docs/resource_collector.md`'s "Fields Not Yet
+  Collected."
+- Still open from prior entries: `PROJECT_RULES.md` Section 8 (Logging
+  Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs. `TypedDict`
+  decision for snapshot section shapes; `permissions` collector scope;
+  `CONTEXT.md` Section 6 clarifying note (optional); Multipass setup docs
+  in `README.md`.

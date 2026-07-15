@@ -10,14 +10,17 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 **Phase 3.2C — Collectors (Implementation, in progress)**
 
-The first real Linux collector, `system.py`, is built and verified — both
-with mocked unit tests and a real integration test run against the
-Multipass Ubuntu 24.04 VM (see `docs/system_collector.md`). It gathers
-`hostname`, `operating_system`, `kernel_version`, `architecture`, and
-`uptime_seconds`, using the `CollectorContext` → `collect()` →
-`CollectorResult` pattern designed in Phases 3.2A/3.2B. Eight collectors
-remain (`cpu_memory`, `processes`, `disk`, `services`, `logs`, `network`,
-`scheduled_jobs`, `permissions`), plus the real scan coordinator.
+Two real Linux collectors are built and verified — both with mocked unit
+tests and real integration tests run against the Multipass Ubuntu 24.04
+VM: `system.py` (`hostname`, `operating_system`, `kernel_version`,
+`architecture`, `uptime_seconds` — see `docs/system_collector.md`) and
+`resource.py` (memory/swap usage from `/proc/meminfo`, load averages from
+`/proc/loadavg` — see `docs/resource_collector.md`). Both follow the
+`CollectorContext` → `collect()` → `CollectorResult` pattern designed in
+Phases 3.2A/3.2B, and neither runs `resource.py`'s commands at all —
+everything comes from `/proc`. Seven collectors remain (`processes`,
+`disk`, `services`, `logs`, `network`, `scheduled_jobs`, `permissions`),
+plus the real scan coordinator.
 
 ---
 
@@ -26,7 +29,7 @@ remain (`cpu_memory`, `processes`, `disk`, `services`, `logs`, `network`,
 **Phase 3.2C continued — Remaining Collectors**
 
 Implement each remaining Linux data collector independently, following
-`system.py` as the template: CPU + memory, processes, disk + inodes,
+`system.py` and `resource.py` as templates: processes, disk + inodes,
 services, logs, network, scheduled jobs, permissions — plus the real scan
 coordinator that builds a `CollectorContext`, runs them all, and assembles
 one snapshot from their `CollectorResult`s, matching the schema designed

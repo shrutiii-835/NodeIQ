@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.2C — Collectors (Implementation, in progress — 1 of 10 tasks done)
-- **Next Phase:** Phase 3.2C continues (next: `cpu_memory` collector)
-- **Overall Progress:** 47 / 79 tasks complete (~59%)
-- **Completed Tasks:** 47 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 1 of 10 in Phase 3.2C)
-- **Remaining Tasks:** 32 (1 in Phase 2, 9 in Phase 3.2C, all of Phases 4–8)
+- **Current Phase:** Phase 3.2C — Collectors (Implementation, in progress — 2 of 10 tasks done)
+- **Next Phase:** Phase 3.2C continues (next: `processes` collector)
+- **Overall Progress:** 48 / 79 tasks complete (~61%)
+- **Completed Tasks:** 48 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 2 of 10 in Phase 3.2C)
+- **Remaining Tasks:** 31 (1 in Phase 2, 8 in Phase 3.2C, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -88,7 +88,7 @@ stay listed (unchecked) until their phase is actually worked on.
 ### Phase 3.2C — Collectors (Implementation, in progress)
 
 - [x] System metadata collector (`system`: hostname, operating_system, kernel_version, architecture, uptime_seconds — `os_name`/`os_version` split and `boot_time` deferred, see `docs/system_collector.md`)
-- [ ] CPU + memory collector (`cpu_memory`)
+- [x] Resource collector (`resource.py`: memory/swap usage from `/proc/meminfo`, load averages from `/proc/loadavg` — CPU utilization percentages deferred; built as `resource.py` rather than the originally planned `cpu_memory.py`, with flat byte-denominated field names rather than the nested kB shape in `docs/snapshot_schema.md` Section 4 — see `docs/resource_collector.md`'s "A Note on Naming and Schema Alignment," not yet reconciled)
 - [ ] Processes collector (`processes`)
 - [ ] Disk + inodes collector (`disk`)
 - [ ] Services collector (`services`)

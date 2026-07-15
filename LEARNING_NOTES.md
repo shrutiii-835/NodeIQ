@@ -595,3 +595,100 @@ machine-readable source exists for a fact NodeIQ needs, prefer it over
 parsing a human-readable command's output for the same fact — it's less
 fragile and doesn't require guessing at another program's formatting
 choices.
+
+---
+
+## Concepts Introduced in Phase 3.3 (Resource Collector)
+
+### What does `/proc/meminfo` contain?
+
+`/proc/meminfo` is a `/proc` file (see "What is `/proc`?" above) listing
+dozens of memory-related statistics, one per line, each shaped
+`Key:  value kB`:
+
+```
+MemTotal:         974844 kB
+MemFree:          572636 kB
+MemAvailable:     706648 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+...
+```
+
+`resource.py` only reads four of these lines — `MemTotal`,
+`MemAvailable`, `SwapTotal`, `SwapFree` — and computes everything else
+(bytes used, percentages) from just those four numbers. The file has many
+more lines (`Buffers`, `Cached`, `Dirty`, and so on) describing exactly
+*how* the kernel is using memory internally, but NodeIQ's v1 doesn't need
+that level of detail to answer "what is consuming memory?"
+
+### What does "load average" actually mean?
+
+**Load average** is a single number summarizing how much demand there has
+been for the CPU over a recent stretch of time — roughly, the average
+number of processes that were either running or waiting for CPU time
+during that period. `/proc/loadavg` reports three of these numbers at
+once, averaged over the last 1, 5, and 15 minutes respectively, so you can
+see whether load is currently spiking, steadily elevated, or already
+trending back down.
+
+A load average of `1.0` on a single-core machine means the CPU was
+*exactly* as busy as it could sustainably be — one thing running or
+waiting, all the time. A load average of `4.0` on a 4-core machine means
+roughly the same thing: demand matched capacity. This is the one place
+where `resource.py`'s current scope has a real gap worth knowing about:
+without `core_count` (deferred — see `docs/resource_collector.md`), a raw
+load average number alone doesn't tell you whether `0.56` is "barely
+loaded" (a 1-core machine) or "essentially idle" (an 8-core machine) — you
+need to know the core count to interpret it, and NodeIQ doesn't collect
+that yet.
+
+### Why is available memory often more useful than free memory?
+
+`/proc/meminfo` reports both `MemFree` (memory nothing is using at all)
+and `MemAvailable` (memory that could be handed to a new process without
+that process having to wait on swap). These sound similar but answer
+different questions, and `MemFree` alone is famously misleading:
+
+Linux aggressively uses "free" memory for disk caching (`Buffers` and
+`Cached` in `/proc/meminfo`) — data recently read from disk is kept around
+in RAM in case it's needed again soon, since RAM is much faster than disk.
+This cache isn't wasted; the kernel will instantly drop cached pages the
+moment a real process actually needs that memory. But it means `MemFree`
+on a healthy, well-utilized Linux server is often surprisingly *low* — not
+because the machine is struggling, but because it's using spare memory
+productively for caching.
+
+`MemAvailable` already accounts for this: it's the kernel's own estimate
+of "how much memory could actually be given to a new process right now,"
+including memory it would reclaim from the cache if asked. This is why
+`resource.py` uses `MemAvailable` (not `MemFree`) to compute
+`memory_used_bytes`/`memory_usage_percent` — it answers "is this machine
+actually running low on memory?" far more reliably than `MemFree` does.
+
+### What's the difference between memory usage and CPU load?
+
+These measure two entirely different kinds of resource pressure, and
+it's easy to conflate them:
+
+- **Memory usage** is a *snapshot* — at this exact instant, how many bytes
+  of RAM are in use vs. available. It doesn't inherently involve time; you
+  can ask "what's memory usage right now?" and get a single, complete
+  answer from one read of `/proc/meminfo`.
+- **CPU load** is fundamentally about *demand over time* — it only means
+  something as an average across a window (1, 5, or 15 minutes), because
+  "how busy was the CPU at this exact instant" isn't really a meaningful
+  question the way "how much memory is in use right now" is. This is also
+  why CPU *utilization percentage* (a different, related metric NodeIQ
+  doesn't collect yet — see `docs/resource_collector.md`) requires taking
+  two separate readings of `/proc/stat` a short time apart and computing
+  the difference, whereas every memory field here comes from a single
+  point-in-time read of `/proc/meminfo`.
+
+A machine can be high on one and low on the other — plenty of free memory
+but a CPU struggling to keep up with requests, or memory nearly exhausted
+while the CPU sits mostly idle waiting on disk I/O. This is exactly why
+`resource.py` treats them as two independent data sources internally, even
+though they're gathered by the same collector: a `/proc/meminfo` failure
+should never prevent `/proc/loadavg` from still being read, and vice
+versa.

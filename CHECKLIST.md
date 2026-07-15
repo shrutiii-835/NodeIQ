@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 5A — CLI Design (complete)
-- **Next Phase:** Phase 5B — CLI Implementation (`scan`/`report`/`ask` wired up per `docs/cli_design.md`), or a refactoring sprint for Phase 4.1B's recorded opportunities
-- **Overall Progress:** 134 / 154 tasks complete (~87%)
-- **Completed Tasks:** 134 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A)
-- **Remaining Tasks:** 20 (1 in Phase 2, all of Phase 5B, all of Phases 6–8)
+- **Current Phase:** Phase 5B — CLI Implementation (complete)
+- **Next Phase:** Phase 6 — LLM Integration (real `nodeiq ask`), or a refactoring sprint for Phase 4.1B's recorded opportunities
+- **Overall Progress:** 140 / 156 tasks complete (~90%)
+- **Completed Tasks:** 140 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B)
+- **Remaining Tasks:** 16 (1 in Phase 2, all of Phases 6–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -219,10 +219,12 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ### Phase 5B — CLI Implementation
 
-- [ ] Wire up `argparse` with subcommands
-- [ ] Implement `nodeiq scan`
-- [ ] Implement `nodeiq report`
-- [ ] Implement `nodeiq ask` (stub, before real LLM wiring)
+- [x] Wire up `argparse` with subcommands (`src/nodeiq/cli/main.py`; `python -m nodeiq` via `src/nodeiq/__main__.py`; console-script `nodeiq` via `pyproject.toml`)
+- [x] Implement `nodeiq scan`: `run_scan()` -> `save_snapshot()` -> print collectors-executed + snapshot location
+- [x] Implement `nodeiq report` (default, `--fresh`, `--snapshot PATH`, `--section NAME`, resolving Phase 5A Open Question 2 in favor of symmetry)
+- [x] Implement `nodeiq ask` as a placeholder reporting that AI integration arrives in Phase 6 (real implementation deferred)
+- [x] Unit tests (32) covering argument parsing, `main()` dispatch, `scan`, `report` (default/fresh/snapshot/section, missing/malformed snapshot, invalid section), the `ask` placeholder, and both pure helpers (`_scan_confirmation`, `_select_section`)
+- [x] Quality review: no duplicated CLI logic (`_scan_confirmation`/`_select_section` each written once, shared where needed); argument validation delegated to `argparse` wherever possible (mutually-exclusive `--snapshot`/`--fresh`); CLI computes no status/formatting of its own
 
 ## Phase 6 — LLM Integration
 

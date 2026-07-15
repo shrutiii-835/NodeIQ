@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Answers natural-language operational questions about a Linux server using real system data."
 requires-python = ">=3.10"
 
+[project.scripts]
+nodeiq = "nodeiq.cli.main:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

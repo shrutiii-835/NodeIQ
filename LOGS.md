@@ -3100,3 +3100,142 @@ project owner's confirmation, not asserted as final, per this task's
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-16 — Phase 5B: CLI Implementation
+
+**Task**
+
+Implement the production CLI exactly as designed in
+`docs/cli_design.md`: `nodeiq scan`, `nodeiq report` (default,
+`--fresh`, `--snapshot PATH`, `--section NAME`), and a placeholder
+`nodeiq ask` that reports AI integration is coming in Phase 6. Add a
+console-script entry point so `nodeiq ...` works, not just `python -m
+nodeiq ...`. The CLI remains a thin orchestration layer — no business
+logic added at this layer.
+
+**Files created**
+
+- `src/nodeiq/cli/__init__.py` — package docstring pointing at
+  `docs/cli_design.md`.
+- `src/nodeiq/cli/main.py` — `build_parser()` (the `argparse` subparser
+  setup for `scan`/`report`/`ask`, exactly per `docs/cli_design.md`
+  Section 3's sketch), `main(argv) -> int` (parses and dispatches,
+  returns an exit code rather than calling `sys.exit()` itself, so it's
+  directly testable and so the console-script entry point can do
+  `sys.exit(main())` on top of it), one handler per command
+  (`_cmd_scan`, `_cmd_report`, `_cmd_ask`), and two small, pure,
+  independently-tested helpers: `_scan_confirmation()` (the two-line
+  "N/M collectors succeeded" + saved-path message, shared by `scan` and
+  `report --fresh` so it's written exactly once) and `_select_section()`
+  (the `--section` dict-filtering logic from `docs/cli_design.md`
+  Section 4.2 — validates against the Summary's own `sections` keys,
+  not a hardcoded list). Exit codes (`EXIT_OK`, `EXIT_NO_SNAPSHOT`,
+  `EXIT_INVALID_ARGS`, `EXIT_INTERNAL_FAILURE`) match the design doc's
+  proposed scheme exactly (`3`, OpenAI/LLM unavailable, is reserved,
+  unused until Phase 6).
+- `src/nodeiq/__main__.py` — lets `python -m nodeiq <command>` work.
+- `tests/cli/test_main.py` — 32 tests: argument parsing for all three
+  commands (including `--snapshot`/`--fresh` mutual exclusivity and a
+  missing/unknown command both being argparse's own "invalid arguments"
+  behavior); `main()`'s dispatch to each command; `scan`'s full-success
+  and partial-collector-failure confirmation text, and its handling of
+  a `save_snapshot()` failure; `report`'s default/`--fresh`/`--snapshot`/
+  `--section` paths, a missing snapshot, a malformed snapshot, and an
+  unknown `--section` name (with the error message listing the real
+  available sections); the `ask` placeholder (with and without a
+  question, confirming it never echoes or attempts to answer the
+  question); and both pure helpers (`_scan_confirmation`,
+  `_select_section`, including a non-mutation check) tested directly
+  with hand-built fixture snapshots — no dependency on the real
+  machine's state, per `PROJECT_RULES.md` Section 11.
+
+**Files modified**
+
+- `pyproject.toml` — added `[project.scripts] nodeiq =
+  "nodeiq.cli.main:main"`, so `pip install -e .` (already the documented
+  one-time setup step) also installs a `nodeiq` console command.
+- `CHECKLIST.md` — Phase 5B's 4 tasks checked, 2 new tasks added and
+  checked (tests; quality review); Progress Summary updated to
+  140/156 (~90%).
+
+**Reasoning**
+
+Every command is exactly as thin as `docs/cli_design.md` specified:
+`_cmd_scan` is two function calls and a print; `_cmd_report` is a
+3-way snapshot-source branch, one `summarize_snapshot()` call, an
+optional filter, and one `format_report()` call; `_cmd_ask` is one
+`print()`. No status computation, threshold logic, or text formatting
+beyond what `nodeiq.summary`/`nodeiq.report` already do exists anywhere
+in `nodeiq.cli`.
+
+This task's instructions explicitly asked for `report --fresh` (not
+just `--snapshot`/`--section`), which resolves Phase 5A's Open Question
+2 ("should `report` also support `--fresh`, for symmetry with `ask
+--fresh`?") in favor of symmetry — recorded here since that question
+was left open in the design doc and is now settled by this
+implementation.
+
+`--section NAME` is validated against `summary["sections"].keys()` —
+the Summary the CLI just computed — rather than any hardcoded list of
+section names, exactly as `docs/cli_design.md` Section 4.2 specified;
+this is what lets the CLI stay correct if a future 10th collector (and
+summarizer) is added, with zero changes needed here.
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** ran every command
+  manually, locally and on the Multipass Ubuntu 24.04 VM
+  (`main-cattle`), via both invocation styles — `python -m nodeiq
+  <command>` and the installed `nodeiq <command>` console script. A
+  real, fully-healthy 9-collector `nodeiq report` on the VM showed every
+  section `[HEALTHY]`; `nodeiq report --section disk` showed only the
+  Disk block; `nodeiq report --fresh` printed the scan confirmation
+  before the report; an invalid `--section` printed the real list of 9
+  available section names and exited `2`; running `report` in an empty
+  directory (no `snapshots/`) printed the expected message and exited
+  `1`; `nodeiq ask` printed the Phase 6 placeholder regardless of
+  whether a question was given. Full VM test suite: 330 passed. Local:
+  320 passed, 10 skipped. Temporary VM copy removed afterward.
+- Quality review (explicitly requested this phase): no duplicated CLI
+  logic found — `_scan_confirmation()` is written once and shared by
+  `scan` and `report --fresh`; `_select_section()` is the only
+  section-filtering code, used once. Argument validation is delegated
+  to `argparse` wherever it already handles the case correctly
+  (`--snapshot`/`--fresh` mutual exclusivity, a missing/unknown
+  subcommand) rather than reimplemented. Separation of concerns holds:
+  every backend function `nodeiq.cli` calls is imported, not
+  reimplemented, and the module computes no status/threshold/formatting
+  logic of its own.
+- Per this task's explicit instruction, `docs/architecture.md` was not
+  updated this phase — it remains the known-stale doc flagged in the
+  Phase 5A entry above.
+- Swept touched files' headings (`grep -n '^#'`) — clean, sequential,
+  Phase 5B correctly nested under Phase 5.
+
+**Future TODOs**
+
+- Phase 6 (LLM Integration) replaces `_cmd_ask`'s placeholder with a
+  real evidence-only OpenAI-backed implementation, resolving Phase 5A's
+  remaining open questions (`ask --fresh`'s exact output shape, the
+  LLM-interpretation function's signature) along the way.
+- `docs/architecture.md` still needs the refresh flagged in the Phase
+  5A entry — now further out of date (it predates the CLI entirely too).
+- Phase 5A's remaining open questions not resolved by this
+  implementation: exact exit-code numbers (implemented as proposed, but
+  not yet explicitly confirmed by the project owner), a `scan --quiet`
+  flag, and a `[project.scripts]` entry point (this one *was* resolved —
+  implemented this phase, per this task's explicit instruction).
+- Still open from prior entries: the two recorded Refactoring
+  Opportunities from Phase 4.1B; field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

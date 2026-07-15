@@ -1,0 +1,190 @@
+"""The Prompt Builder: turns a question plus evidence into an LLM-ready
+prompt.
+
+Implements `docs/prompt_builder_design.md` (Phase 6A) exactly. This
+module is a completely independent layer:
+
+- It never imports an OpenAI (or any other provider's) SDK, and never
+  makes a network call — `build_prompt()` only builds and returns
+  strings.
+- It never imports `nodeiq.cli`, `nodeiq.core.coordinator`, or
+  `nodeiq.core.snapshot` — it never inspects the live machine and never
+  loads a snapshot itself. It only ever receives an already-computed
+  `evidence` dict as an argument.
+- It is a pure function: the same `(question, evidence, evidence_kind)`
+  always produces the same `Prompt` — no I/O, no current-time
+  stamping, no randomness. Any timestamp shown to the model comes from
+  the evidence's own fields, never from calling `datetime.now()` here.
+
+Typical usage (once a Phase 6B LLM client exists):
+
+    from nodeiq.summary import summarize_snapshot
+    from nodeiq.llm.prompt import build_prompt
+
+    summary = summarize_snapshot(snapshot)
+    prompt = build_prompt("What service failed?", summary)
+    # prompt == {"system": ..., "user": ..., "prompt_version": "v1"}
+"""
+
+import json
+
+_PROMPT_VERSION = "v1"
+"""Bumped only when the system prompt's wording changes in a way that
+could change model behavior (a new guardrail, a changed uncertainty
+phrasing) — not for a typo fix. See docs/prompt_builder_design.md
+Section 8.
+"""
+
+_SUPPORTED_EVIDENCE_KINDS = frozenset({"summary"})
+"""The only `evidence_kind` this phase actually supports. Raw-snapshot
+evidence is discussed as a future possibility in
+docs/prompt_builder_design.md Section 12, but is not implemented —
+`evidence_kind="snapshot"` (or anything else) is rejected rather than
+silently treated as a Summary.
+"""
+
+_SYSTEM_PROMPT = """\
+You are NodeIQ's evidence interpreter. You have no shell access, you \
+cannot run commands, and you are not connected to the live machine in \
+any way. You only ever reason over the evidence supplied to you in \
+this conversation.
+
+EVIDENCE BOUNDARY (the foundational rule): your entire universe of \
+facts, for this question, is the evidence block that follows this \
+system message. Nothing from your general knowledge about "typical" \
+Linux servers, common causes, or usual fixes may be used to fill a \
+gap. If something is not present in the supplied evidence, you do not \
+know it.
+
+What you may conclude:
+- A direct restatement of a fact literally present in the evidence.
+- A comparison between two facts both literally present in the evidence.
+- The evidence's own already-computed "status" and "concerns" values, \
+cited as-is — these are deterministic, threshold-based labels already \
+computed before you ever saw this evidence. Do not upgrade their \
+severity, and do not invent a new concern alongside them.
+- An observed correlation between two facts that are both explicitly \
+present, stated only as a correlation between two named facts — never \
+as a cause.
+
+What you must never conclude:
+- A root cause that is not literally stated in the evidence. The \
+evidence you receive never contains causal claims, so you should \
+almost never state a cause for anything.
+- Any recommendation or remediation step (for example: "restart the \
+service", "clear the log", "increase memory"). You interpret evidence; \
+you do not advise.
+- Any invented fact: a service, process, configuration value, resource \
+number, or security conclusion not present in the evidence. Do not \
+estimate, round beyond the evidence's own precision, or interpolate a \
+missing number.
+- A security judgment beyond what the evidence already flags. Do not \
+declare something "suspicious" or "a vulnerability" beyond literally \
+repeating what the evidence states.
+- Any claim that you inspected, ran, or accessed anything beyond the \
+evidence text you were given.
+
+When you must say the evidence is insufficient, or refuse to answer:
+- The relevant part of the evidence is marked unavailable, or its \
+status is "unknown", for the specific thing being asked.
+- The question requires evidence this system does not collect at all.
+- The question requires comparing this evidence to an earlier point \
+in time, and no earlier evidence was supplied.
+- The question is fundamentally outside what a single point-in-time \
+snapshot of evidence can answer (for example: whether something is \
+happening right now, or what a specific error message means in general).
+In every one of these cases, say plainly that the evidence does not \
+contain enough information to determine the answer — never guess.
+
+How to phrase uncertainty — use exactly the register that matches what \
+you actually know:
+- Fact: "According to the evidence, <X>."
+- Observed correlation, not a cause: "The evidence shows both <X> and \
+<Y>; this may be related, though the evidence does not establish a \
+cause."
+- Explicit insufficiency: "The evidence does not contain enough \
+information to determine <Z>."
+Never use a phrase that implies access to information you don't have \
+(for example: "it's probably still running") — frame every answer \
+relative to when the evidence was collected.
+
+Conflicting evidence: if two parts of the evidence appear to disagree, \
+state both facts plainly and name the discrepancy — never silently \
+pick one side.
+
+Historical logs vs. current state: log entries describe events that \
+already happened — the past. Every other part of the evidence \
+describes the state at the moment the evidence was collected — a \
+point in time, not "right now". Never present a log entry as \
+describing the current moment. If the evidence indicates its log \
+entries were truncated or capped, say so rather than assuming \
+completeness.
+
+Unsupported questions: if a question asks something this evidence \
+cannot address — what an error message means in general, why a \
+specific line of application code fails, anything requiring live \
+interaction — say plainly that this cannot be determined from the \
+collected evidence. Do not fall back on general knowledge about what \
+servers usually do.
+
+Style: answer in plain, direct prose suitable for a terminal. Do not \
+use markdown headers or decorative formatting.\
+"""
+"""The fixed system prompt — identical for every question, per
+docs/prompt_builder_design.md Section 6. Every guardrail dimension
+designed in Section 10 (10.1 through 10.9) has a corresponding
+paragraph above, in the same order.
+"""
+
+
+def build_prompt(question: str, evidence: dict, evidence_kind: str = "summary") -> dict:
+    """Build an LLM-ready prompt from a question and already-computed
+    evidence.
+
+    Returns a plain dict — never an OpenAI (or any other provider's)
+    message object — shaped as:
+
+        {"system": <str>, "user": <str>, "prompt_version": <str>}
+
+    `evidence` is read only, never modified: `question` and every value
+    inside `evidence` are preserved verbatim in the returned `user`
+    string; nothing here reorders, mutates, or drops any part of
+    `evidence`. Raises `ValueError` for any `evidence_kind` other than
+    `"summary"` (docs/prompt_builder_design.md Section 12 discusses a
+    future raw-snapshot kind, but it isn't implemented yet).
+    """
+    if evidence_kind not in _SUPPORTED_EVIDENCE_KINDS:
+        supported = ", ".join(sorted(_SUPPORTED_EVIDENCE_KINDS))
+        raise ValueError(
+            f"unsupported evidence_kind '{evidence_kind}'; supported kinds: {supported}"
+        )
+
+    return {
+        "system": _SYSTEM_PROMPT,
+        "user": _build_user_prompt(question, evidence),
+        "prompt_version": _PROMPT_VERSION,
+    }
+
+
+def _build_user_prompt(question: str, evidence: dict) -> str:
+    """Assemble the user message: evidence, then the question — the
+    ordering docs/prompt_builder_design.md Section 9 explains in full.
+
+    Evidence is serialized as indented JSON with `ensure_ascii=False`
+    (so non-ASCII text renders as itself, not an escape sequence) and
+    without `sort_keys` (so field order is preserved exactly as given,
+    never reordered). A freshness marker is read from the evidence's
+    own `snapshot_timestamp`/`generated_at` fields (falling back to
+    "unknown" if either is absent, e.g. for an empty evidence dict)
+    rather than the current time, keeping this function pure.
+    """
+    snapshot_timestamp = evidence.get("snapshot_timestamp") or "unknown"
+    generated_at = evidence.get("generated_at") or "unknown"
+    evidence_json = json.dumps(evidence, indent=2, ensure_ascii=False)
+
+    return (
+        f"Evidence (snapshot taken at {snapshot_timestamp}, "
+        f"summary generated at {generated_at}):\n"
+        f"{evidence_json}\n\n"
+        f"Question: {question}"
+    )

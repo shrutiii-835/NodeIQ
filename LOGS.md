@@ -3364,3 +3364,132 @@ not speculation.
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-16 — Phase 6B: Prompt Builder Implementation
+
+**Task**
+
+Implement the Prompt Builder exactly as designed in
+`docs/prompt_builder_design.md` (Phase 6A) — no OpenAI client, no API
+calls, no CLI changes. A completely independent layer: one pure
+function, `build_prompt(question, evidence, evidence_kind="summary")`,
+returning a plain `{system, user, prompt_version}` dict.
+
+**Files created**
+
+- `src/nodeiq/llm/__init__.py` — package docstring pointing at
+  `docs/prompt_builder_design.md`.
+- `src/nodeiq/llm/prompt.py` — `build_prompt()` (validates
+  `evidence_kind` against `_SUPPORTED_EVIDENCE_KINDS` — currently just
+  `{"summary"}`, raising `ValueError` for anything else rather than
+  silently treating an unimplemented kind as a Summary — then returns
+  the fixed `_SYSTEM_PROMPT`, the constructed user prompt, and
+  `_PROMPT_VERSION`), `_build_user_prompt()` (assembles "evidence, then
+  question," per Phase 6A Section 9 — a freshness marker read from
+  `evidence.get("snapshot_timestamp")`/`evidence.get("generated_at")`
+  falling back to `"unknown"`, then `json.dumps(evidence, indent=2,
+  ensure_ascii=False)` — no `sort_keys`, so field order is preserved
+  exactly as given — then `"Question: "` plus the question verbatim),
+  and `_SYSTEM_PROMPT` (a single module-level string constant
+  containing every guardrail designed in Phase 6A Section 10, in the
+  same order: the evidence boundary stated first and most prominently,
+  what the model may/must never conclude, when it must say evidence is
+  insufficient, the three-register uncertainty-phrasing convention,
+  conflicting-evidence handling, historical-logs-vs-current-state
+  framing, and unsupported questions).
+- `tests/llm/test_prompt.py` — 35 tests: return-shape conformance (a
+  plain dict, never an SDK message object); a normal question; an
+  empty question (no crash); empty evidence (`{}`, no crash, "unknown"
+  freshness marker); an unsupported `evidence_kind` (raises
+  `ValueError` naming the supported kinds); determinism across repeated
+  calls with identical and separately-constructed fixtures;
+  `prompt_version` present, stable, and unaffected by the evidence
+  given; evidence values (including nested ones) and field order
+  preserved verbatim in the user prompt; the question preserved exactly
+  (punctuation, multiline, Unicode — with an explicit check that no
+  `\u`-escaped sequence ever appears, confirming `ensure_ascii=False`
+  is doing its job); every one of eleven guardrail phrases from the
+  system prompt present (parametrized); the system prompt identical
+  regardless of question/evidence; and non-mutation of both the
+  evidence dict and its nested values, including a check that mutating
+  the caller's evidence dict *after* calling `build_prompt()` does not
+  retroactively change the already-returned prompt string.
+
+**Files modified**
+
+- `CHECKLIST.md` — split Phase 6B into "Phase 6B — Prompt Builder
+  Implementation" (6 tasks checked) and a new "Phase 6C — OpenAI Client
+  & CLI Wiring" (2 tasks, unchecked, for the remaining real-LLM work).
+  Progress Summary updated to 151/165 (~91%).
+
+**Reasoning**
+
+Every requirement from `docs/prompt_builder_design.md` was implemented
+literally rather than reinterpreted: the module lives at
+`src/nodeiq/llm/prompt.py` exactly as proposed; the returned shape is a
+plain dict, not a dataclass, for the same reason the design doc gave
+(it exists to be handed almost immediately to an SDK call); the system
+prompt is a single fixed constant covering all nine guardrail
+subsections in the same order they were designed, so a future reviewer
+can check this implementation against that design section-by-section.
+
+`evidence_kind` validation (rejecting anything but `"summary"`) wasn't
+explicitly spelled out field-by-field in the Phase 6A document, but
+follows directly from it: Section 12 states a raw-snapshot evidence
+kind is a future possibility, not something implemented yet — silently
+accepting `evidence_kind="snapshot"` today and treating it as a Summary
+would produce a subtly wrong prompt with no warning, which is exactly
+the kind of silent failure this project's error-handling philosophy
+(`PROJECT_RULES.md` Section 7) rejects at every other layer.
+
+**Important implementation notes**
+
+- Confirmed via `grep` that `src/nodeiq/llm/` imports nothing beyond
+  Python's own `json` standard-library module — no OpenAI SDK, no
+  `nodeiq.cli`, no `nodeiq.core.coordinator`, no `nodeiq.core.snapshot`.
+  Independence from all four is structural, not just described in a
+  docstring.
+- Quality review (explicitly requested this task): no duplicated prompt
+  text (the system prompt is written once, as one constant); no hidden
+  mutation (`_build_user_prompt` only ever reads `evidence` via `.get()`
+  and `json.dumps`, verified by dedicated non-mutation tests); no
+  coupling to OpenAI or the CLI (confirmed above); no unnecessary
+  complexity (one public function, one private helper, two constants —
+  no question-routing, no evidence-kind branching beyond the one
+  validation check, matching Phase 6A's explicit "do not implement
+  question routing" scope). No improvement was found worth making
+  before committing.
+- Full local test suite: 355 passed, 10 skipped (320 prior + 35 new).
+  Since `build_prompt()` is pure Python with no OS dependency, no
+  Multipass VM verification was needed for this phase — unlike every
+  collector-touching phase before it.
+- Swept touched files' headings (`grep -n '^#'`) — clean, sequential,
+  Phase 6B/6C correctly nested under Phase 6.
+
+**Future TODOs**
+
+- Phase 6C should add the OpenAI SDK dependency and `.env`-based key
+  loading (ADR-005/ADR-008), then wire `nodeiq ask` to call
+  `build_prompt()` and a real LLM client, replacing today's placeholder
+  — resolving `docs/cli_design.md` Section 4.3's still-open question
+  about exactly what evidence `ask` hands over as part of that work.
+- Phase 6A's eight open questions (`docs/prompt_builder_design.md`
+  Section 15) remain entirely open; none were resolved by this
+  implementation phase, per its own scope (implement as designed,
+  don't re-litigate the design).
+- `docs/architecture.md` still needs the refresh flagged since Phase
+  5A — now further out of date still (predates `nodeiq.llm` too).
+- Still open from prior entries: the two recorded Refactoring
+  Opportunities from Phase 4.1B; field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

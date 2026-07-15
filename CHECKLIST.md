@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 6A — Prompt Builder & Guardrail Design (complete)
-- **Next Phase:** Phase 6B — LLM Integration Implementation (real `nodeiq ask`), or a refactoring sprint for Phase 4.1B's recorded opportunities
-- **Overall Progress:** 145 / 161 tasks complete (~90%)
-- **Completed Tasks:** 145 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A)
-- **Remaining Tasks:** 16 (1 in Phase 2, all of Phase 6B, all of Phases 7–8)
+- **Current Phase:** Phase 6B — Prompt Builder Implementation (complete)
+- **Next Phase:** Phase 6C — OpenAI Client & CLI Wiring (real `nodeiq ask`), or a refactoring sprint for Phase 4.1B's recorded opportunities
+- **Overall Progress:** 151 / 165 tasks complete (~91%)
+- **Completed Tasks:** 151 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B)
+- **Remaining Tasks:** 14 (1 in Phase 2, all of Phase 6C, all of Phases 7–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -226,6 +226,7 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Unit tests (32) covering argument parsing, `main()` dispatch, `scan`, `report` (default/fresh/snapshot/section, missing/malformed snapshot, invalid section), the `ask` placeholder, and both pure helpers (`_scan_confirmation`, `_select_section`)
 - [x] Quality review: no duplicated CLI logic (`_scan_confirmation`/`_select_section` each written once, shared where needed); argument validation delegated to `argparse` wherever possible (mutually-exclusive `--snapshot`/`--fresh`); CLI computes no status/formatting of its own
 
+
 ## Phase 6 — LLM Integration
 
 ### Phase 6A — Prompt Builder & Guardrail Design (design only, no code)
@@ -236,12 +237,19 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Discuss (without implementing) question-category evidence needs (information/explanation/analysis/comparison/troubleshooting/security) and Summary-vs-Snapshot token trade-offs
 - [x] Quality review: checked for hidden coupling, unnecessary complexity, token waste, maintainability, hallucination risk, and future migration problems; record eight genuine open questions rather than guessing
 
-### Phase 6B — LLM Integration Implementation
+### Phase 6B — Prompt Builder Implementation
+
+- [x] Implement `src/nodeiq/llm/prompt.py`: `build_prompt(question, evidence, evidence_kind="summary") -> dict`, a pure function returning a plain `{system, user, prompt_version}` dict
+- [x] Implement every guardrail designed in Phase 6A as real system-prompt text (evidence boundary, allowed/forbidden conclusions, when to refuse, uncertainty-phrasing registers, conflicting evidence, historical-vs-current framing, unsupported questions)
+- [x] Construct the user prompt as evidence (JSON, order-preserving, with a freshness marker) then the verbatim question, per the Phase 6A ordering
+- [x] Reject any `evidence_kind` other than `"summary"` explicitly, rather than silently treating an unimplemented kind as a Summary
+- [x] Unit tests (35) covering normal/empty questions, empty evidence, unsupported `evidence_kind`, determinism, prompt versioning, evidence/question preservation, guardrail presence, non-mutation, and Unicode/multiline handling
+- [x] Quality review: confirmed zero coupling to the OpenAI SDK or `nodeiq.cli` (only `import json`), no duplicated prompt text, no hidden mutation
+
+### Phase 6C — OpenAI Client & CLI Wiring
 
 - [ ] Add OpenAI SDK dependency and `.env`-based key loading
-- [ ] Implement the Prompt Builder per `docs/prompt_builder_design.md`
-- [ ] Wire `ask` command to the OpenAI API (replacing today's placeholder)
-- [ ] Implement the guardrails designed in Phase 6A as real system-prompt text
+- [ ] Wire `ask` command to the OpenAI API (replacing today's placeholder), calling `build_prompt()` for the actual prompt
 
 ## Phase 7 — Robustness
 

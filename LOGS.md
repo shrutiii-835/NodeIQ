@@ -4074,3 +4074,36 @@ unverified under those exact conditions.
 Phase 8 (Multipass VM fresh-install + scenario validation) recorded in
 the next entry below, once this commit is pushed and validated against
 the real, pushed `origin/main`.
+
+---
+
+## 2026-07-16 — Phase 8: Validation
+
+Fresh-install simulation on a real Multipass Ubuntu 24.04 VM: `git
+clone` of the just-pushed `origin/main` (`ec0944f`) → venv →
+`pip install -e .` → `pip install -r requirements.txt` (no `.env`
+copied, per Phase 7B's deployment-safety work) → verified
+`nodeiq --version`, `nodeiq scan` (9/9 collectors), `nodeiq report`,
+`nodeiq ask` (graceful `LLMConfigurationError` message, no key
+configured — the correct behavior for a machine with no `.env`), and
+the interactive shell (`help`/`exit`). Full suite: 482 passed.
+
+Five real scenarios, each created, verified, then reverted:
+
+1. **Disk** — `fallocate -l 1G` a temp file: `report --section disk`
+   went from 69.0% to 95.0% fullest-filesystem usage; file removed
+   afterward. (AI-explains-evidence-only already verified with a real
+   OpenAI call in Phase 6D/7A against this exact section.)
+2. **Service** — `systemctl stop cron`: `services` stayed `[HEALTHY]`,
+   0 failed — correct, since a clean stop is `inactive`, not `failed`;
+   `services.py` only flags genuinely failed units. `cron` restarted
+   immediately after.
+3. **Network** — started `python3 -m http.server 8899`: listening-port
+   count increased (10, up from the baseline); process killed after.
+4. **Logs** — `logger -p user.warning`/`user.err` test entries:
+   `logs` correctly went to `[WARNING]`, 1 error-level entry detected.
+5. **Permissions** — `chmod o+w /var/log`: `permissions` correctly went
+   to `[CRITICAL]`, flagging `World-writable: /var/log`; reverted to
+   `755` immediately after (confirmed via `stat`).
+
+VM copy removed afterward; `cron` confirmed `active` again.

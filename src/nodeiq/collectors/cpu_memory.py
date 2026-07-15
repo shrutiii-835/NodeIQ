@@ -1,15 +1,18 @@
-"""CPU + memory collector: memory usage and CPU load average.
+"""CPU + memory collector: CPU usage, memory usage, and load average.
 
 Answers "how loaded is this machine right now?" — one of NodeIQ's
 headline example questions ("what is consuming memory?", "is this system
-under load?"). Follows the same `CollectorContext` -> `collect()` ->
-`CollectorResult` pattern established by `system.py`
-(docs/system_collector.md), but needs no commands at all: every field
-comes from reading `/proc/meminfo` and `/proc/loadavg` directly.
+under load?", "what is CPU usage?"). Follows the same `CollectorContext`
+-> `collect()` -> `CollectorResult` pattern established by `system.py`
+(docs/system_collector.md); every field comes from reading `/proc`
+files directly, no subprocess calls.
 
-v1 scope is intentionally narrow: memory usage (from `/proc/meminfo`) and
-load averages (from `/proc/loadavg`). CPU utilization percentages are not
-collected yet — see docs/cpu_memory_collector.md.
+CPU usage is the one field here that isn't a single snapshot read:
+`/proc/stat`'s cumulative jiffie counters only measure time *since
+boot*, not a rate, so computing a percentage requires two samples a
+short interval apart (`_CPU_SAMPLE_INTERVAL_SECONDS`) — the same
+technique `top`/`mpstat` use. This adds a small, fixed, deliberate delay
+to this one collector's own runtime; see docs/cpu_memory_collector.md.
 """
 
 import time
@@ -20,23 +23,35 @@ from nodeiq.core.errors import error_entry
 
 _MEMINFO_PATH = Path("/proc/meminfo")
 _LOADAVG_PATH = Path("/proc/loadavg")
+_STAT_PATH = Path("/proc/stat")
 
 _REQUIRED_MEMINFO_KEYS = {"MemTotal", "MemAvailable", "SwapTotal", "SwapFree"}
 
+_CPU_SAMPLE_INTERVAL_SECONDS = 0.2
+"""How long to wait between the two `/proc/stat` samples used to compute
+CPU usage. Short enough not to meaningfully slow a scan down, long
+enough for the jiffie deltas to be a meaningful, stable measurement."""
+
 
 def collect(context: CollectorContext) -> CollectorResult:
-    """Gather memory usage and CPU load average.
+    """Gather CPU usage, memory usage, and load average.
 
-    Memory and load average are two independent data sources
-    (`/proc/meminfo` and `/proc/loadavg`) — if one can't be read or
-    parsed, its fields are recorded as `None` and the failure is added to
-    `errors`, but the other data source is still collected. See
+    All three are independent data sources (`/proc/stat`,
+    `/proc/meminfo`, `/proc/loadavg`) — if one can't be read or parsed,
+    its fields are recorded as `None` and the failure is added to
+    `errors`, but the others are still collected. See
     PROJECT_RULES.md Section 7 and docs/collector_guidelines.md for why
     partial data always beats no data.
     """
     start_time = time.monotonic()
     data: dict = {}
     errors: list[dict] = []
+
+    try:
+        data["cpu_usage_percent"] = _get_cpu_usage_percent()
+    except ValueError as exc:
+        data["cpu_usage_percent"] = None
+        errors.append(error_entry(exc))
 
     try:
         data.update(_get_memory_fields())
@@ -62,6 +77,69 @@ def collect(context: CollectorContext) -> CollectorResult:
         errors=errors,
         duration_ms=(time.monotonic() - start_time) * 1000,
     )
+
+
+def _get_cpu_usage_percent() -> float:
+    """Sample `/proc/stat`'s aggregate CPU line twice,
+    `_CPU_SAMPLE_INTERVAL_SECONDS` apart, and return the percentage of
+    time spent not idle between the two samples.
+
+    A single `/proc/stat` read only has cumulative jiffies since boot —
+    there's no rate in one sample alone, so two samples and a delta are
+    required. Raises `ValueError` if `/proc/stat` can't be read or
+    parsed either time.
+    """
+    first = _read_cpu_jiffies()
+    time.sleep(_CPU_SAMPLE_INTERVAL_SECONDS)
+    second = _read_cpu_jiffies()
+    return _compute_cpu_usage_percent(first, second)
+
+
+def _read_cpu_jiffies() -> tuple:
+    raw_text = _read_proc_file(_STAT_PATH)
+    return _parse_stat_cpu_line(raw_text)
+
+
+def _parse_stat_cpu_line(raw_text: str) -> tuple:
+    """Pure function: `/proc/stat`'s text in, `(idle_jiffies,
+    total_jiffies)` out — from its first `"cpu "` aggregate line (the
+    combined total across all cores; per-core `"cpu0"`, `"cpu1"`, ...
+    lines are not used). No file I/O — just string parsing, so it can
+    be tested with a literal sample string. Raises `ValueError` if no
+    such line exists or it doesn't parse as expected.
+
+    `idle_jiffies` combines the `idle` and `iowait` fields — both
+    represent time the CPU spent doing no work, whether truly idle or
+    blocked waiting on I/O — matching how `top`/`mpstat` compute usage.
+    """
+    for line in raw_text.splitlines():
+        if not line.startswith("cpu "):
+            continue
+        try:
+            values = [int(field) for field in line.split()[1:]]
+        except ValueError as exc:
+            raise ValueError(f"could not parse /proc/stat cpu line: {line!r}") from exc
+        if len(values) < 4:
+            raise ValueError(f"/proc/stat cpu line has too few fields: {line!r}")
+        idle_jiffies = values[3] + (values[4] if len(values) > 4 else 0)
+        return idle_jiffies, sum(values)
+    raise ValueError("no aggregate 'cpu' line found in /proc/stat")
+
+
+def _compute_cpu_usage_percent(first: tuple, second: tuple) -> float:
+    """Pure function: two `(idle_jiffies, total_jiffies)` samples in,
+    the percentage of time spent not idle between them out. Returns
+    `0.0` (rather than raising) if the total didn't advance at all
+    between samples — an edge case, not a real 0% usage claim, but the
+    safest default when there's no meaningful delta to compute from.
+    """
+    idle_first, total_first = first
+    idle_second, total_second = second
+    delta_idle = idle_second - idle_first
+    delta_total = total_second - total_first
+    if delta_total <= 0:
+        return 0.0
+    return round((1 - delta_idle / delta_total) * 100, 2)
 
 
 def _read_proc_file(path: Path) -> str:

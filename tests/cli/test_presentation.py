@@ -56,3 +56,11 @@ def test_render_qa_multiline_answer_preserved_verbatim():
     answer = "Line one.\nLine two.\nLine three."
     result = render_qa("q", answer)
     assert answer in result
+
+
+def test_render_qa_is_bounded_by_the_shared_separator():
+    result = render_qa("q", "a")
+    lines = result.split("\n")
+
+    assert lines[0] == SEPARATOR
+    assert lines[-1] == SEPARATOR

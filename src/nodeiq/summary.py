@@ -41,6 +41,8 @@ from nodeiq.core.errors import error_entry
 # snapshot's own numbers. None of these are inferred, learned, or
 # configurable in v1 (see docs/summary_engine_design.md, Open Question 3).
 
+_CPU_WARNING_PERCENT = 80.0
+_CPU_CRITICAL_PERCENT = 95.0
 _MEMORY_WARNING_PERCENT = 75.0
 _MEMORY_CRITICAL_PERCENT = 90.0
 _SWAP_WARNING_PERCENT = 50.0
@@ -229,13 +231,14 @@ def _summarize_system(data: dict, errors: list) -> dict:
 
 
 def _summarize_cpu_memory(data: dict, errors: list) -> dict:
-    """Status is driven by `memory_usage_percent` and
-    `swap_usage_percent` against fixed thresholds. `load_average_*` is
-    surfaced as a highlight only — see docs/cpu_memory_collector.md's
-    own note that a load average number alone is hard to threshold
-    meaningfully without a core count, which this collector doesn't
-    collect (deferred).
+    """Status is driven by `cpu_usage_percent`, `memory_usage_percent`,
+    and `swap_usage_percent`, each against its own fixed thresholds.
+    `load_average_*` is surfaced as a highlight only — see
+    docs/cpu_memory_collector.md's own note that a load average number
+    alone is hard to threshold meaningfully without a core count, which
+    this collector doesn't collect (deferred).
     """
+    cpu_usage_percent = data.get("cpu_usage_percent")
     memory_usage_percent = data.get("memory_usage_percent")
     swap_usage_percent = data.get("swap_usage_percent")
 
@@ -243,6 +246,21 @@ def _summarize_cpu_memory(data: dict, errors: list) -> dict:
     has_critical = False
     has_warning = False
     evaluated_anything = False
+
+    if cpu_usage_percent is not None:
+        evaluated_anything = True
+        if cpu_usage_percent >= _CPU_CRITICAL_PERCENT:
+            has_critical = True
+            concerns.append(
+                f"CPU usage at {cpu_usage_percent:.1f}% "
+                f"(critical threshold: {_CPU_CRITICAL_PERCENT:.0f}%)"
+            )
+        elif cpu_usage_percent >= _CPU_WARNING_PERCENT:
+            has_warning = True
+            concerns.append(
+                f"CPU usage at {cpu_usage_percent:.1f}% "
+                f"(warning threshold: {_CPU_WARNING_PERCENT:.0f}%)"
+            )
 
     if memory_usage_percent is not None:
         evaluated_anything = True
@@ -277,11 +295,14 @@ def _summarize_cpu_memory(data: dict, errors: list) -> dict:
     else:
         status = "unknown"
 
-    headline = (
-        f"Memory {memory_usage_percent:.1f}% used"
-        if memory_usage_percent is not None
-        else "Memory usage unavailable"
-    )
+    if cpu_usage_percent is not None and memory_usage_percent is not None:
+        headline = f"CPU {cpu_usage_percent:.1f}% used, memory {memory_usage_percent:.1f}% used"
+    elif memory_usage_percent is not None:
+        headline = f"Memory {memory_usage_percent:.1f}% used"
+    elif cpu_usage_percent is not None:
+        headline = f"CPU {cpu_usage_percent:.1f}% used"
+    else:
+        headline = "CPU/memory usage unavailable"
 
     highlights = []
     if data.get("load_average_1m") is not None:
@@ -291,6 +312,7 @@ def _summarize_cpu_memory(data: dict, errors: list) -> dict:
         )
 
     evidence = {
+        "cpu_usage_percent": cpu_usage_percent,
         "memory_usage_percent": memory_usage_percent,
         "swap_usage_percent": swap_usage_percent,
         "load_average_1m": data.get("load_average_1m"),

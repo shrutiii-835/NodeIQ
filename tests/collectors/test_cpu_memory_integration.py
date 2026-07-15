@@ -29,6 +29,8 @@ def test_collect_populates_every_field_on_a_real_linux_system():
     result = cpu_memory.collect(context)
 
     assert result.errors == [], f"unexpected collection errors: {result.errors}"
+    assert isinstance(result.data["cpu_usage_percent"], float)
+    assert 0.0 <= result.data["cpu_usage_percent"] <= 100.0
     assert result.data["memory_used_bytes"] > 0
     assert result.data["memory_available_bytes"] >= 0
     assert isinstance(result.data["memory_usage_percent"], float)

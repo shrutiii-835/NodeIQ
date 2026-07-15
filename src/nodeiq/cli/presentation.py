@@ -27,9 +27,13 @@ def render_banner(lines: list) -> str:
 
 
 def render_qa(question: str, answer: str) -> str:
-    """Render one question/answer pair with a clear, consistent shape.
+    """Render one question/answer pair with a clear, consistent shape,
+    bounded by the same separator the banner and `format_report()` use
+    — so a single answer reads as one clearly-bounded block, especially
+    useful in the interactive shell where several exchanges scroll by
+    in a row.
 
     `answer` is never rewritten, reformatted, or trimmed — only the
-    surrounding "Question:"/"Answer:" labels are added.
+    surrounding "Question:"/"Answer:" labels and separators are added.
     """
-    return f"Question: {question}\n\nAnswer:\n{answer}"
+    return f"{SEPARATOR}\nQuestion: {question}\n\nAnswer:\n{answer}\n{SEPARATOR}"

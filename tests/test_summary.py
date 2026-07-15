@@ -357,7 +357,42 @@ def test_cpu_memory_is_warning_from_swap_even_when_memory_is_healthy():
 def test_cpu_memory_is_unknown_when_no_fields_are_present():
     result = summary._summarize_cpu_memory({}, [])
     assert result["status"] == "unknown"
-    assert result["headline"] == "Memory usage unavailable"
+    assert result["headline"] == "CPU/memory usage unavailable"
+
+
+def test_cpu_memory_is_warning_at_the_cpu_warning_threshold():
+    result = summary._summarize_cpu_memory(
+        {"cpu_usage_percent": summary._CPU_WARNING_PERCENT, "memory_usage_percent": 10.0}, []
+    )
+    assert result["status"] == "warning"
+    assert len(result["concerns"]) == 1
+    assert "CPU usage" in result["concerns"][0]
+
+
+def test_cpu_memory_is_critical_at_the_cpu_critical_threshold():
+    result = summary._summarize_cpu_memory(
+        {"cpu_usage_percent": summary._CPU_CRITICAL_PERCENT, "memory_usage_percent": 10.0}, []
+    )
+    assert result["status"] == "critical"
+
+
+def test_cpu_memory_headline_combines_cpu_and_memory_when_both_present():
+    result = summary._summarize_cpu_memory(
+        {"cpu_usage_percent": 12.5, "memory_usage_percent": 27.7}, []
+    )
+    assert result["headline"] == "CPU 12.5% used, memory 27.7% used"
+
+
+def test_cpu_memory_headline_falls_back_to_cpu_only_when_memory_missing():
+    result = summary._summarize_cpu_memory({"cpu_usage_percent": 12.5}, [])
+    assert result["headline"] == "CPU 12.5% used"
+
+
+def test_cpu_memory_evidence_includes_cpu_usage_percent():
+    result = summary._summarize_cpu_memory(
+        {"cpu_usage_percent": 12.5, "memory_usage_percent": 27.7}, []
+    )
+    assert result["evidence"]["cpu_usage_percent"] == 12.5
 
 
 # --- processes status logic ---------------------------------------------------------

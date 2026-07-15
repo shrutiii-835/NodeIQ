@@ -25,9 +25,14 @@ diverges from — see "A Note on Naming and Schema Alignment" below).
 ## Responsibilities
 
 The CPU + Memory Collector answers "how loaded is this machine right
-now?" — directly supporting two of NodeIQ's headline example questions:
-"what is consuming memory?" and "is this system under load?" v1 gathers
-exactly eight facts, from two independent sources:
+now?" — directly supporting three of NodeIQ's headline example
+questions: "what is CPU usage?", "what is consuming memory?", and "is
+this system under load?" v1 gathers nine facts, from three independent
+sources:
+
+**From `/proc/stat`** (two samples, `_CPU_SAMPLE_INTERVAL_SECONDS`
+apart — see "Computing CPU Usage" below):
+- `cpu_usage_percent`
 
 **From `/proc/meminfo`:**
 - `memory_used_bytes`, `memory_available_bytes`, `memory_usage_percent`
@@ -36,11 +41,22 @@ exactly eight facts, from two independent sources:
 **From `/proc/loadavg`:**
 - `load_average_1m`, `load_average_5m`, `load_average_15m`
 
-Nothing else — CPU utilization *percentages* are explicitly **not**
-collected in v1 (see "Fields Not Yet Collected" below). Memory and load
-average are two independent data sources: if one file can't be read or
-parsed, its fields come back `None` with an error recorded, but the other
-source is still collected in full (see PROJECT_RULES.md Section 7).
+CPU usage, memory, and load average are three independent data sources:
+if one file can't be read or parsed, its fields come back `None` with
+an error recorded, but the others are still collected in full (see
+PROJECT_RULES.md Section 7).
+
+### Computing CPU Usage
+
+Unlike memory, `/proc/stat`'s CPU jiffie counters are cumulative *since
+boot*, not a point-in-time snapshot — a single read has no rate to
+report. `_get_cpu_usage_percent()` reads `/proc/stat`'s aggregate
+`"cpu "` line, sleeps `_CPU_SAMPLE_INTERVAL_SECONDS` (0.2s), reads it
+again, and reports the percentage of the *delta* that wasn't idle —
+the same two-sample technique `top`/`mpstat` use. This is the one
+deliberate, fixed delay this collector adds to its own runtime; 0.2s is
+negligible next to a full scan's total time and buys a real,
+non-fabricated CPU percentage rather than reporting nothing.
 
 ---
 
@@ -109,6 +125,7 @@ process count, and the most recently created PID) aren't collected in v1.
 
 | Field | Meaning |
 |---|---|
+| `cpu_usage_percent` | Percentage of CPU time (combined across all cores) spent doing work between two `/proc/stat` samples `_CPU_SAMPLE_INTERVAL_SECONDS` apart — see "Computing CPU Usage" above. |
 | `memory_used_bytes` | Memory actually in use, computed as `MemTotal - MemAvailable` (in kB from `/proc/meminfo`, converted to bytes). |
 | `memory_available_bytes` | Memory that could be made available to a new process without swapping, taken directly from `/proc/meminfo`'s `MemAvailable` (converted to bytes) — see "Why Available Memory Is Often More Useful Than Free Memory" in `LEARNING_NOTES.md`. |
 | `memory_usage_percent` | `memory_used_bytes` as a percentage of total memory, rounded to two decimal places. |
@@ -120,13 +137,10 @@ process count, and the most recently created PID) aren't collected in v1.
 
 ## Fields Not Yet Collected
 
-- **CPU utilization percentages** (e.g. "this machine's CPU is 40% busy
-  right now") are explicitly out of scope for this task. Unlike memory,
-  computing a CPU percentage from `/proc/stat` requires taking two
-  readings a short interval apart and computing the *difference* between
-  them (CPU time is cumulative, not a point-in-time snapshot like memory)
-  — a meaningfully different collection strategy from everything else
-  this collector does, deferred to a future increment.
+- ~~CPU utilization percentages~~ — **implemented**; see "Computing CPU
+  Usage" above. `cpu_usage_percent` is the combined usage across all
+  cores; per-core (`cpu0`, `cpu1`, ...) breakdowns and a core count are
+  still not collected.
 - **Process/thread counts and per-core load** (`/proc/loadavg`'s fourth
   field, `running/total`) are read but not collected — only the three load
   averages are, per this task's scope.

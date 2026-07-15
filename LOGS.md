@@ -4245,3 +4245,50 @@ question in the same directory afterward reused that same snapshot
 file (no new one created).
 
 Full suite: 502 passed, 10 skipped.
+
+---
+
+## 2026-07-16 — Feature: real CPU usage collection + Q&A formatting polish
+
+**Task:** user reported `ask` too often answers "insufficient evidence"
+for genuine questions (e.g. "current cpu usage") because that data
+simply wasn't collected — asked to expand collection so real questions
+get real answers, without leaking sensitive info or taking any
+destructive/privileged action. Also asked for better output formatting.
+
+**Files modified:**
+- `src/nodeiq/collectors/cpu_memory.py` — added `cpu_usage_percent`,
+  read from `/proc/stat`: two samples of the aggregate `"cpu "` line,
+  `_CPU_SAMPLE_INTERVAL_SECONDS` (0.2s) apart, reporting the percentage
+  of the delta that wasn't idle — the standard `top`/`mpstat` technique
+  (a single `/proc/stat` read has only cumulative jiffies since boot,
+  no rate). Read-only, no privileged access, no destructive action.
+- `src/nodeiq/summary.py` — `_summarize_cpu_memory` now thresholds
+  `cpu_usage_percent` too (`_CPU_WARNING_PERCENT`/`_CPU_CRITICAL_PERCENT`
+  = 80/95), and the headline combines CPU + memory when both are present.
+- `src/nodeiq/cli/presentation.py` — `render_qa()` now bounds each
+  Q&A block with the same separator the banner/report header already
+  use, so one exchange reads as a clearly bounded block (most useful in
+  the interactive shell, where several exchanges scroll by in a row).
+- `docs/cpu_memory_collector.md`, `CHECKLIST.md` updated to match.
+- Tests: 19 new in `tests/collectors/test_cpu_memory.py` (pure
+  `/proc/stat` parsing, the two-sample computation, `collect()`
+  end-to-end with CPU-usage mocked to keep tests fast/deterministic —
+  no real `time.sleep()` in the suite), 6 new in `tests/test_summary.py`,
+  1 new in `tests/cli/test_presentation.py`, plus the integration test
+  updated to assert a real `cpu_usage_percent` on Linux.
+
+**Verified for real:** full local suite 521 passed, 10 skipped; full
+Multipass VM suite 531 passed; `nodeiq report --section cpu_memory` on
+the VM showed a real measured CPU percentage; a real OpenAI call
+against that VM's real snapshot (copied back locally, no secrets
+involved, then asked with the real local `.env` key) correctly
+answered "the current CPU usage is 0.0%" instead of "insufficient
+evidence" — confirming the fix closes the exact gap reported.
+
+**Scope note:** this is a genuine, deliberate feature addition (not
+just a bug fix) — the same "never invent facts" guardrail is unchanged;
+this only gives the model more real evidence to draw from. Other
+previously-deferred fields (per-process CPU%, `core_count`,
+`filesystem_type`, timer next/last-run) remain out of scope for this
+change; only the specific gap the user hit (CPU usage) was addressed.

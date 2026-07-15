@@ -71,7 +71,15 @@ def test_successful_answer_is_returned_unchanged(monkeypatch):
 
     result = ask_module.answer_question("Is anything wrong?")
 
-    assert result == "According to the evidence, nothing has failed."
+    assert result["answer"] == "According to the evidence, nothing has failed."
+
+
+def test_result_includes_the_snapshots_metadata(monkeypatch):
+    _install(monkeypatch)
+
+    result = ask_module.answer_question("Is anything wrong?")
+
+    assert result["snapshot_metadata"] == _FAKE_SNAPSHOT["metadata"]
 
 
 # --- Latest snapshot loading ----------------------------------------------------------
@@ -206,4 +214,4 @@ def test_answer_text_is_not_reformatted_or_wrapped(monkeypatch):
 
     result = ask_module.answer_question("q")
 
-    assert result == "  Exactly this, including odd spacing.  "
+    assert result["answer"] == "  Exactly this, including odd spacing.  "

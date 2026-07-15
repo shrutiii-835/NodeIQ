@@ -109,6 +109,37 @@ def test_unknown_command_is_an_invalid_argument():
         cli_main.build_parser().parse_args(["bogus"])
 
 
+# --- --version ------------------------------------------------------------------------
+
+
+def test_version_flag_exits_zero_and_prints_the_single_source_version(capsys):
+    from nodeiq import __version__
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.build_parser().parse_args(["--version"])
+
+    assert exc_info.value.code == 0
+    assert __version__ in capsys.readouterr().out
+
+
+def test_version_flag_works_via_main(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main(["--version"])
+
+    assert exc_info.value.code == 0
+
+
+def test_installed_package_version_matches_the_single_source(monkeypatch):
+    # pyproject.toml declares version as dynamic, read from
+    # nodeiq.__version__ (tool.setuptools.dynamic) -- this confirms
+    # there is only one real value in play, not two that could drift.
+    import importlib.metadata
+
+    from nodeiq import __version__
+
+    assert importlib.metadata.version("nodeiq") == __version__
+
+
 # --- main() dispatch ----------------------------------------------------------------
 
 
@@ -133,7 +164,11 @@ def test_main_dispatches_to_report(monkeypatch, capsys):
 
 
 def test_main_dispatches_to_ask(monkeypatch, capsys):
-    monkeypatch.setattr(cli_main, "answer_question", lambda q, snapshot_path=None: "the answer")
+    monkeypatch.setattr(
+        cli_main,
+        "answer_question",
+        lambda q, snapshot_path=None: {"answer": "the answer", "snapshot_metadata": {}},
+    )
 
     exit_code = cli_main.main(["ask", "anything"])
 
@@ -305,7 +340,12 @@ def test_report_command_invalid_section(monkeypatch, capsys):
 
 def test_ask_command_prints_the_answer(monkeypatch, capsys):
     monkeypatch.setattr(
-        cli_main, "answer_question", lambda q, snapshot_path=None: "Nothing has failed."
+        cli_main,
+        "answer_question",
+        lambda q, snapshot_path=None: {
+            "answer": "Nothing has failed.",
+            "snapshot_metadata": {},
+        },
     )
     args = cli_main.build_parser().parse_args(["ask", "is anything wrong?"])
 
@@ -324,7 +364,7 @@ def test_ask_command_passes_question_and_snapshot_path_through(monkeypatch):
     def _fake_answer_question(question, snapshot_path=None):
         seen["question"] = question
         seen["snapshot_path"] = snapshot_path
-        return "ok"
+        return {"answer": "ok", "snapshot_metadata": {}}
 
     monkeypatch.setattr(cli_main, "answer_question", _fake_answer_question)
     args = cli_main.build_parser().parse_args(["ask", "--snapshot", "some/path.json", "q?"])
@@ -332,6 +372,40 @@ def test_ask_command_passes_question_and_snapshot_path_through(monkeypatch):
     cli_main._cmd_ask(args)
 
     assert seen == {"question": "q?", "snapshot_path": "some/path.json"}
+
+
+def test_ask_command_shows_freshness_warning_for_a_stale_snapshot(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli_main,
+        "answer_question",
+        lambda q, snapshot_path=None: {
+            "answer": "ok",
+            "snapshot_metadata": {"scan_timestamp": "2020-01-01T00:00:00+00:00"},
+        },
+    )
+    args = cli_main.build_parser().parse_args(["ask", "q"])
+
+    cli_main._cmd_ask(args)
+
+    assert "Warning: this snapshot was generated" in capsys.readouterr().err
+
+
+def test_ask_command_no_freshness_warning_for_a_fresh_snapshot(monkeypatch, capsys):
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(
+        cli_main,
+        "answer_question",
+        lambda q, snapshot_path=None: {
+            "answer": "ok",
+            "snapshot_metadata": {"scan_timestamp": datetime.now(timezone.utc).isoformat()},
+        },
+    )
+    args = cli_main.build_parser().parse_args(["ask", "q"])
+
+    cli_main._cmd_ask(args)
+
+    assert "Warning" not in capsys.readouterr().err
 
 
 def test_ask_command_missing_snapshot(monkeypatch, capsys):

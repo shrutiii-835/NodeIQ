@@ -363,6 +363,14 @@ def test_request_timeout_is_applied(monkeypatch):
     assert completions.calls[0]["timeout"] == client._REQUEST_TIMEOUT_SECONDS
 
 
+def test_response_token_cap_is_applied(monkeypatch):
+    completions = _install_fake_openai(monkeypatch, lambda n, kw: _chat_response("ok"))
+
+    client.ask_openai(_FAKE_PROMPT)
+
+    assert completions.calls[0]["max_completion_tokens"] == client._MAX_RESPONSE_TOKENS
+
+
 # --- Prompt Builder output consumed verbatim, never rebuilt ----------------------------
 
 

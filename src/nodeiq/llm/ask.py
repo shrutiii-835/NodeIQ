@@ -14,7 +14,8 @@ Typical usage (this is exactly what `nodeiq ask` does):
 
     from nodeiq.llm.ask import answer_question
 
-    answer = answer_question("What service failed?")
+    result = answer_question("What service failed?")
+    print(result["answer"])
 """
 
 from pathlib import Path
@@ -25,14 +26,21 @@ from nodeiq.llm.prompt import build_prompt
 from nodeiq.summary import summarize_snapshot
 
 
-def answer_question(question: str, snapshot_path: Path | str | None = None) -> str:
+def answer_question(question: str, snapshot_path: Path | str | None = None) -> dict:
     """Answer one natural-language question about the machine.
 
     Pipeline: load a snapshot (`snapshot_path` if given, otherwise the
     latest one already saved under `snapshots/`) -> summarize it ->
     build a prompt from `question` and that Summary -> send it to
-    OpenAI -> return the answer text exactly as `ask_openai()` returned
-    it, unchanged.
+    OpenAI -> return `{"answer": <str>, "snapshot_metadata": <dict>}`.
+
+    `answer` is the answer text exactly as `ask_openai()` returned it,
+    unchanged. `snapshot_metadata` is the snapshot's own `metadata`
+    dict (see `docs/snapshot_schema.md`) — returned so a caller can
+    check the evidence's age (e.g. `nodeiq.cli.freshness.
+    check_snapshot_freshness()`) without loading or resolving the
+    snapshot path a second time; this function is already the one place
+    that decides which snapshot to use.
 
     Raises whatever the functions it calls already raise —
     `nodeiq.core.exceptions.SnapshotError` for a missing/malformed
@@ -46,4 +54,5 @@ def answer_question(question: str, snapshot_path: Path | str | None = None) -> s
     snapshot = load_snapshot(snapshot_path) if snapshot_path else load_latest_snapshot()
     summary = summarize_snapshot(snapshot)
     prompt = build_prompt(question, summary)
-    return ask_openai(prompt)
+    answer = ask_openai(prompt)
+    return {"answer": answer, "snapshot_metadata": snapshot.get("metadata") or {}}

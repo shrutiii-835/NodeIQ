@@ -6,114 +6,116 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ---
 
-## Current Milestone
+## Status: v1 Complete
 
-**Phase 3.6 — Disk & Inodes Collector**
+Every milestone below is done, tested, and verified on a real Ubuntu 24.04
+machine (a Multipass VM, plus a genuine fresh-install/`git clone` simulation
+and five hands-on scenario validations — see `LOGS.md`'s Phase 8 entry for
+the full record). NodeIQ's three commands (`scan`, `report`, `ask`) and its
+interactive shell are all real, working software, not a plan.
 
-The fourth real Linux collector, and the first to need commands instead
-of `/proc` files: `collectors/disk.py` merges `df -P -B1` (byte-precise
-capacity) and `df -P -i` (inode usage) by mount point into one
-per-filesystem entry — `total_bytes`, `used_bytes`, `available_bytes`,
-`usage_percent`, `inode_total`, `inode_used`, `inode_available`,
-`inode_usage_percent` — plus scan-wide `highest_disk_usage_percent` and
-`highest_inode_usage_percent`. A filesystem with no inode concept (e.g.
-`efivarfs`) degrades gracefully to `None` rather than erroring; if either
-`df` command fails, whatever the other produced is still returned.
-Registered with the coordinator, verified with both mocked unit tests
-and a real end-to-end integration test on the Multipass VM (111 tests
-passing) — see `docs/disk_collector.md`.
+A small number of items remain deliberately unchecked in `CHECKLIST.md`
+rather than silently marked done — see "Known Gaps, Recorded Honestly"
+below. None of them block v1; they're recorded so future work starts from
+an accurate picture, not a guess.
 
 ---
 
-## Upcoming Milestone
+## Long-Term Milestones — All Complete
 
-**Phase 3.2C continued — Remaining Collectors**
+1. **Phase 1 — Project Architecture.** Repository structure and the full
+   documentation set (`README.md`, `CONTEXT.md`, `PROJECT_RULES.md`,
+   `LOGS.md`, `CHECKLIST.md`, `DECISIONS.md`, `ROADMAP.md`,
+   `LEARNING_NOTES.md`); git initialized.
 
-Implement each remaining Linux data collector independently, following
-`system.py`, `cpu_memory.py`, `processes.py`, and `disk.py` as templates:
-services, logs, network, scheduled jobs, permissions — registering each
-one with the coordinator (`docs/coordinator.md`) as it's built, so
-`run_scan()`'s snapshot grows one section at a time.
+2. **Phase 2 — Data Model.** The snapshot JSON schema, documented field by
+   field in `docs/snapshot_schema.md`. (One item intentionally left open:
+   `dataclasses` vs. `TypedDict` for in-code schema representation — a
+   real, still-undecided question, not an oversight.)
+
+3. **Phase 3 — Collectors.** All 9 v1 collectors built, tested (mocked
+   unit tests plus real Multipass VM integration tests for each), and
+   registered with the coordinator: system metadata, CPU/memory,
+   processes, disk & inodes, services, logs, network, scheduled jobs,
+   permissions. `nodeiq.core.coordinator.run_scan()` runs all of them,
+   aggregates `collection_errors`, and assembles one in-memory snapshot —
+   one broken collector never stops the rest.
+
+4. **Phase 4 — Report Generation.** The Summary Engine
+   (`nodeiq.summary`) turns a raw snapshot into a concise, deterministic
+   Summary (per-section `status`/`headline`/`highlights`/`concerns`,
+   computed only from fixed thresholds — never AI, never inferred
+   causes). The Report Formatter (`nodeiq.report`) renders a Summary as
+   clean terminal text, presentation only.
+
+5. **Phase 5 — CLI.** `nodeiq scan`, `nodeiq report` (`--section`,
+   `--snapshot`, `--fresh`), and `nodeiq ask` wired up with `argparse`
+   (`src/nodeiq/cli/`), reachable via `python -m nodeiq` or the installed
+   `nodeiq` console script.
+
+6. **Phase 6 — LLM Integration.** The Prompt Builder (`nodeiq.llm.prompt`)
+   builds a fixed, versioned, guardrail-enforcing prompt from a question
+   and a Summary; the OpenAI Client (`nodeiq.llm.client`) is the one
+   module that talks to OpenAI, with retries, timeouts, and every SDK
+   failure translated into a clean, project-specific exception;
+   `nodeiq.llm.ask.answer_question()` composes the whole pipeline, and
+   `nodeiq ask` calls it — evidence-only answering, so the LLM never
+   invents a fact it wasn't given.
+
+7. **Phase 7 — UX, Hardening & Robustness.**
+   - **7A — User Experience & Platform Awareness:** an interactive shell
+     (running `nodeiq` with no subcommand — a `NodeIQ>` prompt reusing
+     the exact same `ask` pipeline), platform/distribution detection with
+     a clean refusal on non-Linux systems, and consistent Question/Answer
+     presentation.
+   - **7B — Hardening:** a secret-safe deployment helper
+     (`scripts/sync_to_vm.sh`), a stale-snapshot freshness warning,
+     prompt/response size limits so no single request can become
+     unbounded, `nodeiq --version` backed by one single version source,
+     and a full security/quality review.
+   - **7C — Robustness:** timeouts, partial-collector-failure handling,
+     large-log-volume handling, and missing-systemd handling were all
+     already true from earlier phases and re-verified here; secret
+     redaction for log/config *content* remains a known, recorded gap
+     (see below).
+
+8. **Phase 8 — Testing & Validation.** The full automated test suite
+   (unit tests for every collector and every module, integration tests
+   for the CLI) plus a genuine end-to-end validation pass: a fresh-install
+   simulation (`git clone` → venv → `pip install -e .` → configure
+   `.env` → verify every command) and five real, hands-on scenarios
+   (disk usage, a stopped service, a new listening process, generated log
+   warnings/errors, a permissions change) on a real Ubuntu 24.04 VM.
 
 ---
 
-## Long-Term Milestones
+## Known Gaps, Recorded Honestly
 
-1. **Phase 3.2C — Collectors** *(see Upcoming Milestone above for detail)*
+Per this project's own practice of writing down a real limitation rather
+than silently overstating completeness:
 
-2. **Phase 4 — Report Generation**
-   Turn a snapshot into a clear, human-readable report.
-
-3. **Phase 5 — CLI**
-   Wire up `nodeiq scan`, `nodeiq report`, and `nodeiq ask` using
-   `argparse`.
-
-4. **Phase 6 — LLM Integration**
-   Connect `ask` to the OpenAI API, with evidence-only prompting so the LLM
-   never answers from anything but the snapshot it's given.
-
-5. **Phase 7 — Robustness**
-   Timeouts, partial-failure handling, secret redaction, large-log
-   handling, missing-systemd handling, firewall-implementation variance,
-   and permission-error handling.
-
-6. **Phase 8 — Testing**
-   Unit and integration tests, end-to-end validation, and demo preparation.
-
-7. **Post-v1 Future Directions** *(not yet scheduled into a phase)*
-   - Remote host support (currently single, local server only)
-   - Historical snapshot comparison / trend detection
-   - Scheduled scans (via cron or systemd timers) with alerting
-   - Support for multiple LLM providers
-   - A simple web UI for browsing reports
+- **Secret redaction for log/config content is not implemented.**
+  `CONTEXT.md` Section 4 calls for it explicitly; the `logs` collector
+  currently captures raw `journalctl` message text unredacted. This is
+  the single most important remaining hardening item for a future
+  session.
+- **Firewall-implementation variance** (`iptables`/`nftables`/`ufw`) and
+  **non-root permission-error handling** are both already handled
+  gracefully by existing code (best-effort detection; collectors that
+  never raise on a permission error), but neither has been explicitly
+  stress-tested under those exact conditions — recorded as unverified,
+  not as broken.
+- **No demo script or slide deck exists.** Arguably out of scope for this
+  project's own goals, but left unchecked rather than assumed done.
 
 ---
 
-## Eventually Completed
+## Post-v1 Future Directions *(not scheduled into any phase)*
 
-- **Phase 1 — Project Architecture**: repository structure and full
-  documentation set (`README.md`, `CONTEXT.md`, `PROJECT_RULES.md`,
-  `LOGS.md`, `CHECKLIST.md`, `DECISIONS.md`, `ROADMAP.md`,
-  `LEARNING_NOTES.md`) established; git repository initialized with a
-  clean history. See `LOGS.md` entries dated 2026-07-14 for the full
-  record.
-- **Phase 3.1 — Core Execution Infrastructure**: `nodeiq.core.runner`,
-  `nodeiq.core.result`, `nodeiq.core.exceptions`, and a documented
-  `nodeiq.core.coordinator` placeholder built and tested; `pytest`
-  introduced. See `LOGS.md`, "Phase 3.1: Core Execution Infrastructure."
-- **Phase 3.2A — Collector Design Pattern**: the standard `collect()`
-  contract, lifecycle, and testing expectations documented in
-  `docs/collector_guidelines.md`; ADR-012 and ADR-013 recorded. See
-  `LOGS.md` for this entry's full record.
-- **Phase 3.2B — Collector Infrastructure Refinement**: `collect()`'s
-  return contract refined from a `(data, errors)` tuple to
-  `CollectorContext`/`CollectorResult` dataclasses in
-  `nodeiq.core.collector`; ADR-014 recorded. See `LOGS.md` for this
-  entry's full record.
-- **Phase 3.2C / 3.3 — System and CPU + Memory Collectors**: the first two
-  real Linux collectors built and verified on the Multipass VM. See
-  `docs/system_collector.md` and `docs/cpu_memory_collector.md`.
-- **Phase 3.4 — Coordinator MVP**: `run_scan()` implemented for real,
-  replacing the Phase 3.1 placeholder — builds a `CollectorContext`, runs
-  the registered collectors, aggregates `collection_errors`, builds
-  `metadata`, and assembles an in-memory snapshot, verified end to end on
-  the Multipass VM; `resource.py` renamed to `cpu_memory.py`. See
-  `LOGS.md`, "Phase 3.4: Coordinator MVP."
-- **Phase 3.5A — Process Collector Design**: designed (not implemented)
-  the Process Collector — `/proc/<pid>` structure, a proposed v1 schema,
-  process states, and a summarization strategy, plus a review of the
-  existing `processes` schema section. See `docs/process_collector_design.md`
-  and `LOGS.md`, "Phase 3.5A: Process Collector Design."
-- **Phase 3.5B — Process Collector Implementation**: built and verified
-  `collectors/processes.py` from the Phase 3.5A design — `process_count`,
-  `zombie_count`, `blocked_process_count`, and `top_by_memory`, reading
-  only `/proc/<pid>/status`/`cmdline`/`comm`, registered with the
-  coordinator, verified end to end on the Multipass VM. See
-  `docs/process_collector.md` and `LOGS.md`, "Phase 3.5B: Process
-  Collector Implementation."
-- **Phase 3.6 — Disk & Inodes Collector**: built and verified
-  `collectors/disk.py` — merges `df -P -B1` and `df -P -i` by mount
-  point, computes `highest_disk_usage_percent`/`highest_inode_usage_percent`,
-  registered with the coordinator, verified end to end on the Multipass
-  VM. See `docs/disk_collector.md` and `LOGS.md`, "Phase 3.6: Disk +
-  Inodes Collector."
+- Remote host support (currently single, local server only)
+- Historical snapshot comparison / trend detection
+- Scheduled scans (via cron or systemd timers) with alerting
+- Support for multiple LLM providers
+- A simple web UI for browsing reports
+- Question-aware routing between the Summary and the raw snapshot
+  (`docs/prompt_builder_design.md` Section 15)

@@ -223,7 +223,7 @@ def test_question_calls_answer_question_and_renders_the_answer(monkeypatch, caps
 
     def _fake_answer_question(question):
         seen.append(question)
-        return "Nothing has failed."
+        return {"answer": "Nothing has failed.", "snapshot_metadata": {}}
 
     monkeypatch.setattr(shell, "answer_question", _fake_answer_question)
     _fake_input(monkeypatch, ["Is anything wrong?", "exit"])
@@ -239,7 +239,9 @@ def test_question_calls_answer_question_and_renders_the_answer(monkeypatch, caps
 
 def test_multiple_questions_in_one_session_all_answered(monkeypatch, capsys):
     monkeypatch.setattr(shell, "detect_platform", lambda: _LINUX)
-    monkeypatch.setattr(shell, "answer_question", lambda q: f"answer to: {q}")
+    monkeypatch.setattr(
+        shell, "answer_question", lambda q: {"answer": f"answer to: {q}", "snapshot_metadata": {}}
+    )
     _fake_input(monkeypatch, ["first question", "second question", "exit"])
 
     shell.run_shell()

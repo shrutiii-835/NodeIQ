@@ -2,7 +2,7 @@
 no subcommand.
 
 This module adds no new business logic. Every question typed at the
-`>` prompt is answered by calling the exact same
+`NodeIQ>` prompt is answered by calling the exact same
 `nodeiq.llm.ask.answer_question()` the `ask` subcommand already calls
 — there is no second orchestration path and no second place a prompt
 is built. Errors are translated with the exact same
@@ -17,11 +17,12 @@ REPL loop itself: reading lines, recognizing `help`/`exit`/`quit`/
 import sys
 
 from nodeiq.cli.ask_errors import format_ask_error
+from nodeiq.cli.freshness import check_snapshot_freshness
 from nodeiq.cli.platform_info import detect_platform
 from nodeiq.cli.presentation import render_banner, render_qa
 from nodeiq.llm.ask import answer_question
 
-_PROMPT = "> "
+_PROMPT = "NodeIQ> "
 _EXIT_COMMANDS = {"exit", "quit"}
 _CLEAR_SEQUENCE = "\033[2J\033[H"
 
@@ -90,13 +91,17 @@ def _handle_question(question: str) -> None:
     failed question must never end the whole session.
     """
     try:
-        answer = answer_question(question)
+        result = answer_question(question)
     except Exception as exc:
         print(format_ask_error(exc), file=sys.stderr)
         return
 
+    freshness_warning = check_snapshot_freshness(result["snapshot_metadata"])
+    if freshness_warning:
+        print(freshness_warning, file=sys.stderr)
+
     print()
-    print(render_qa(question, answer))
+    print(render_qa(question, result["answer"]))
     print()
 
 

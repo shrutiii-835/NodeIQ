@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 7A — User Experience & Platform Awareness (complete)
-- **Next Phase:** Phase 7B — Robustness, or a refactoring sprint for Phase 4.1B's recorded opportunities
-- **Overall Progress:** 176 / 188 tasks complete (~94%)
-- **Completed Tasks:** 176 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A)
-- **Remaining Tasks:** 12 (1 in Phase 2, all of Phase 7B, all of Phase 8)
+- **Current Phase:** Phase 7B — Hardening (complete); Phase 8 — Testing & Validation (complete)
+- **Next Phase:** None required for v1 — remaining items are recorded gaps (secret redaction for log content, firewall/permission-error stress testing, demo prep), not blockers
+- **Overall Progress:** 191 / 196 tasks complete (~97%)
+- **Completed Tasks:** 191 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A, all of Phase 7B, 4 of 7 in Phase 7C, 3 of 4 in Phase 8)
+- **Remaining Tasks:** 5 (1 in Phase 2 — dataclasses vs. TypedDict; 3 in Phase 7C — secret redaction for log content, firewall stress test, non-root permission stress test; 1 in Phase 8 — demo prep)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -268,7 +268,7 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Security review: `OPENAI_API_KEY` still read only in `client.py`; confirmed never appears in CLI output, exceptions, snapshots, or prompts; Prompt Builder and OpenAI Client both unchanged
 - [x] Quality review: CLI remains thin (one call to `answer_question()` plus exception translation, no orchestration duplicated), no duplicated prompt construction, no hidden coupling
 
-## Phase 7 — UX & Robustness
+## Phase 7 — UX, Hardening & Robustness
 
 ### Phase 7A — User Experience & Platform Awareness
 
@@ -282,22 +282,33 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Quality review: identified and fixed a `KeyboardInterrupt` handling gap (a question in flight wasn't covered, only the prompt itself was); confirmed no duplicated orchestration/prompt construction and no hidden coupling
 - [x] Manual verification on real Linux (Multipass VM) and real macOS (dev machine): correct platform detection and banner/unsupported-platform message in both cases, and a real interactive session exercising `help`/`clear`/a question/`exit`
 
-### Phase 7B — Robustness
+### Phase 7B — Hardening
 
-- [ ] Apply timeouts to every subprocess call
-- [ ] Handle partial collector failures end-to-end (verify `collection_errors` works in practice)
-- [ ] Implement secret redaction for logs/config data
-- [ ] Handle very large log volumes gracefully
-- [ ] Handle missing systemd gracefully
-- [ ] Handle different firewall implementations (iptables / nftables / ufw)
-- [ ] Handle permission errors gracefully (e.g., non-root user)
+- [x] Deployment safety: `scripts/sync_to_vm.sh` — a single, git-checked-in transfer helper excluding `.env`/`.venv/`/`__pycache__/`/`.pytest_cache/`/`snapshots/*.json`/`.git/` by construction, with a defense-in-depth check that refuses to proceed if `.env` somehow reaches its staging directory anyway
+- [x] Repository-wide secret grep sweep: confirmed `OPENAI_API_KEY` is read only in `client.py`, no real key/secret exists anywhere in tracked files, `.env` stays untracked and gitignored
+- [x] Snapshot robustness: `src/nodeiq/cli/freshness.py` — a stale-snapshot warning (>24h old) shown by `report` and `ask` (both the single-shot command and the interactive shell), never by `scan`/`report --fresh`/`ask` right after `--fresh` scans a fresh snapshot; missing/malformed snapshot and missing metadata were already handled (`SnapshotError`, Phase 3.8) and re-verified, not re-implemented
+- [x] LLM safety hardening: prompt size protection in `nodeiq.llm.prompt` (evidence and question each capped, truncated with a visible "N characters omitted" marker rather than silently cut) and response size protection in `nodeiq.llm.client` (`max_completion_tokens` cap) — reviewed the Prompt Builder, OpenAI Client, and `ask` pipeline together; API-key handling, exception translation, and response validation were already solid from Phase 6C/6D and re-verified, not re-implemented
+- [x] CLI polish: the interactive shell's prompt is now `NodeIQ>` (was `>`); `--help` gained a usage-examples epilog; `nodeiq --version` added
+- [x] Version now comes from exactly one source (`src/nodeiq/llm` — `src/nodeiq/__init__.py`'s `__version__`): `pyproject.toml`'s `[project] version` is `dynamic`, resolved from that same attribute via `[tool.setuptools.dynamic]`, rather than a second hardcoded value
+- [x] Unit tests (24 new: 11 for freshness, 6 for prompt-size truncation, 1 for the response token cap, 3 for `--version`, 2 for the freshness warning wired into `ask`) plus updates to existing tests for `answer_question()`'s extended return shape
+- [x] Quality review: no duplicated logic (the freshness check, error formatter, and Q/A renderer are each written once and shared across `report`/`ask`/the shell); no secret exposure (grep-verified); the CLI remains thin; collectors, the coordinator, the Summary Engine, and the Report Formatter were reviewed but not modified
 
-## Phase 8 — Testing
+### Phase 7C — Robustness
 
-- [ ] Unit tests for every collector (happy path + failure paths)
-- [ ] Integration tests for CLI commands against fixture snapshots
-- [ ] End-to-end validation pass
-- [ ] Demo preparation
+- [x] Apply timeouts to every subprocess call — already true for every collector via `CollectorContext.default_timeout` passed to `run_command()`, established since Phase 3.1/3.2B; re-verified, not re-implemented
+- [x] Handle partial collector failures end-to-end (verify `collection_errors` works in practice) — already true and exercised in every collector's own tests plus every real Multipass VM run across this project's history; re-verified, not re-implemented
+- [ ] Implement secret redaction for logs/config data — **not yet implemented; the clearest remaining gap for a future hardening pass** (see Known Limitations in the Phase 7B/8 LOGS.md entry) — `logs.py` currently captures raw `journalctl` message text unredacted
+- [x] Handle very large log volumes gracefully — already true: `logs.py`'s `_MAX_ENTRIES` cap plus its `truncated` flag, established at Collector Sprint 2; re-verified, not re-implemented
+- [x] Handle missing systemd gracefully — already true via `services.py`'s `systemd_available` flag (`DECISIONS.md` ADR-010); re-verified, not re-implemented
+- [ ] Handle different firewall implementations (iptables / nftables / ufw) — `network.py`'s best-effort detection already covers all three, but hasn't been explicitly stress-tested across distributions with each one installed; left unchecked pending that dedicated verification
+- [ ] Handle permission errors gracefully (e.g., non-root user) — individual collectors already degrade gracefully on a permission error (never raise), but this hasn't been verified end-to-end running NodeIQ as a genuinely unprivileged, non-root user; left unchecked pending that dedicated verification
+
+## Phase 8 — Testing & Validation
+
+- [x] Unit tests for every collector (happy path + failure paths) — already true, one test module per collector since each was built
+- [x] Integration tests for CLI commands against fixture snapshots — already true (`tests/cli/`)
+- [x] End-to-end validation pass — a fresh-install simulation (`git clone` → venv → `pip install -e .` → configure `.env` → verify `--version`/`scan`/`report`/`ask`/the interactive shell) plus 5 real, hands-on scenarios (disk usage, a stopped service, a new listening process, generated log warnings/errors, and a permissions change) on a real Multipass Ubuntu 24.04 VM — see the Phase 8 LOGS.md entry for full results
+- [ ] Demo preparation — not done; no scripted walkthrough or slide deck exists (arguably out of scope for this project's own goals, but left unchecked rather than silently assumed complete)
 
 ---
 

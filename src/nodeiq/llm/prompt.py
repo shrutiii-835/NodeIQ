@@ -43,6 +43,19 @@ docs/prompt_builder_design.md Section 12, but is not implemented —
 silently treated as a Summary.
 """
 
+_MAX_EVIDENCE_JSON_CHARS = 50_000
+"""A generous ceiling — a real Summary is a few KB at most (Phase 6A's
+whole "collectors already reduce noise" premise), so hitting this in
+practice would itself signal a bug elsewhere, not normal operation.
+Exists so a single pathological snapshot can never produce an unbounded
+prompt (Phase 7B hardening: "huge evidence cannot create uncontrolled
+prompts")."""
+
+_MAX_QUESTION_CHARS = 2_000
+"""A generous ceiling for a single natural-language question — protects
+against an accidental giant paste blowing up prompt size the same way
+oversized evidence could."""
+
 _SYSTEM_PROMPT = """\
 You are NodeIQ's evidence interpreter. You have no shell access, you \
 cannot run commands, and you are not connected to the live machine in \
@@ -177,10 +190,22 @@ def _build_user_prompt(question: str, evidence: dict) -> str:
     own `snapshot_timestamp`/`generated_at` fields (falling back to
     "unknown" if either is absent, e.g. for an empty evidence dict)
     rather than the current time, keeping this function pure.
+
+    Both the serialized evidence and the question are size-bounded (see
+    `_MAX_EVIDENCE_JSON_CHARS`/`_MAX_QUESTION_CHARS`) — truncated with a
+    visible marker rather than silently cut, so a truncated answer is
+    never mistaken for a complete one (the same "never hide what's
+    missing" principle CONTEXT.md's Safety Philosophy already applies
+    to `collection_errors`, extended here to prompt construction).
     """
     snapshot_timestamp = evidence.get("snapshot_timestamp") or "unknown"
     generated_at = evidence.get("generated_at") or "unknown"
-    evidence_json = json.dumps(evidence, indent=2, ensure_ascii=False)
+    evidence_json = _truncate(
+        json.dumps(evidence, indent=2, ensure_ascii=False),
+        _MAX_EVIDENCE_JSON_CHARS,
+        "evidence",
+    )
+    question = _truncate(question, _MAX_QUESTION_CHARS, "question")
 
     return (
         f"Evidence (snapshot taken at {snapshot_timestamp}, "
@@ -188,3 +213,14 @@ def _build_user_prompt(question: str, evidence: dict) -> str:
         f"{evidence_json}\n\n"
         f"Question: {question}"
     )
+
+
+def _truncate(text: str, limit: int, label: str) -> str:
+    """Pure function: cut `text` to `limit` characters if it's longer,
+    appending a visible marker naming exactly how much was cut — never
+    a silent truncation.
+    """
+    if len(text) <= limit:
+        return text
+    omitted = len(text) - limit
+    return f"{text[:limit]}\n... [{label} truncated: {omitted} characters omitted for prompt-size safety]"

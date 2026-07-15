@@ -275,3 +275,64 @@ def test_returned_user_prompt_is_independent_of_further_evidence_mutation():
 
     assert "original-host" in result["user"]
     assert "mutated-after-the-fact" not in result["user"]
+
+
+# --- Prompt size protection (Phase 7B hardening) ------------------------------------
+
+
+def test_small_evidence_is_not_truncated():
+    evidence = {"hostname": "test-host"}
+    result = build_prompt("q", evidence)
+
+    assert "truncated" not in result["user"]
+
+
+def test_huge_evidence_is_truncated_with_a_visible_marker():
+    from nodeiq.llm import prompt as prompt_module
+
+    huge_evidence = {"padding": "x" * (prompt_module._MAX_EVIDENCE_JSON_CHARS + 5_000)}
+    result = build_prompt("q", huge_evidence)
+
+    assert "evidence truncated" in result["user"]
+    assert "characters omitted for prompt-size safety" in result["user"]
+
+
+def test_truncated_evidence_stays_at_or_under_the_configured_limit_plus_marker():
+    from nodeiq.llm import prompt as prompt_module
+
+    huge_evidence = {"padding": "x" * (prompt_module._MAX_EVIDENCE_JSON_CHARS * 3)}
+    result = build_prompt("q", huge_evidence)
+
+    # The raw JSON portion itself must never exceed the configured cap,
+    # even though the visible marker appended after it adds more text.
+    evidence_block = result["user"].split("\n\n")[0]
+    json_only = evidence_block.split("\n... [")[0]
+    assert len(json_only) <= prompt_module._MAX_EVIDENCE_JSON_CHARS + len(
+        "Evidence (snapshot taken at unknown, summary generated at unknown):\n"
+    )
+
+
+def test_small_question_is_not_truncated():
+    result = build_prompt("a normal, short question", {})
+    assert "question truncated" not in result["user"]
+
+
+def test_huge_question_is_truncated_with_a_visible_marker():
+    from nodeiq.llm import prompt as prompt_module
+
+    huge_question = "why? " * (prompt_module._MAX_QUESTION_CHARS // 4)
+    result = build_prompt(huge_question, {})
+
+    assert "question truncated" in result["user"]
+    assert "characters omitted for prompt-size safety" in result["user"]
+
+
+def test_truncation_never_raises_for_pathological_input():
+    from nodeiq.llm import prompt as prompt_module
+
+    huge_evidence = {"a": "y" * 1_000_000}
+    huge_question = "z" * 1_000_000
+
+    result = build_prompt(huge_question, huge_evidence)
+
+    assert isinstance(result["user"], str)

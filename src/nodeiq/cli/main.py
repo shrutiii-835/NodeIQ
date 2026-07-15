@@ -27,7 +27,9 @@ import argparse
 import sys
 from pathlib import Path
 
+from nodeiq import __version__ as _NODEIQ_VERSION
 from nodeiq.cli.ask_errors import format_ask_error
+from nodeiq.cli.freshness import check_snapshot_freshness
 from nodeiq.cli.presentation import render_qa
 from nodeiq.cli.shell import run_shell
 from nodeiq.core.coordinator import run_scan
@@ -37,6 +39,15 @@ from nodeiq.llm.ask import answer_question
 from nodeiq.llm.exceptions import LLMError
 from nodeiq.report import format_report
 from nodeiq.summary import summarize_snapshot
+
+_EXAMPLES_EPILOG = """\
+examples:
+  nodeiq                              enter the interactive shell
+  nodeiq scan                         collect a fresh snapshot
+  nodeiq report                       show a report for the latest snapshot
+  nodeiq report --section disk        show only the disk section
+  nodeiq ask "What service failed?"    ask a question about the machine
+"""
 
 # --- Exit codes (docs/cli_design.md Section 5, "Exit Code Summary") -------------
 
@@ -56,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Answer natural-language operational questions about "
         "a Linux server using real system data. Run with no command to "
         "enter the interactive shell.",
+        epilog=_EXAMPLES_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"NodeIQ {_NODEIQ_VERSION}"
     )
     subparsers = parser.add_subparsers(dest="command", required=False)
 
@@ -143,6 +159,11 @@ def _cmd_report(args: argparse.Namespace) -> int:
         print(f"Could not complete report: {exc}", file=sys.stderr)
         return EXIT_INTERNAL_FAILURE
 
+    if not args.fresh:
+        freshness_warning = check_snapshot_freshness(snapshot.get("metadata"))
+        if freshness_warning:
+            print(freshness_warning, file=sys.stderr)
+
     summary = summarize_snapshot(snapshot)
 
     if args.section:
@@ -168,7 +189,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     4.3 and docs/prompt_builder_design.md.
     """
     try:
-        answer = answer_question(args.question, snapshot_path=args.snapshot)
+        result = answer_question(args.question, snapshot_path=args.snapshot)
     except SnapshotError as exc:
         print(format_ask_error(exc), file=sys.stderr)
         return EXIT_NO_SNAPSHOT
@@ -179,7 +200,10 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         print(format_ask_error(exc), file=sys.stderr)
         return EXIT_INTERNAL_FAILURE
 
-    print(render_qa(args.question, answer))
+    freshness_warning = check_snapshot_freshness(result["snapshot_metadata"])
+    if freshness_warning:
+        print(freshness_warning, file=sys.stderr)
+    print(render_qa(args.question, result["answer"]))
     return EXIT_OK
 
 

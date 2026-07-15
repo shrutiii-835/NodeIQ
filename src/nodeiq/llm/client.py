@@ -75,6 +75,14 @@ never hang `nodeiq ask` indefinitely, the same guarantee
 `nodeiq.core.runner` already gives every collector's subprocess calls.
 """
 
+_MAX_RESPONSE_TOKENS = 1000
+"""Bounds the model's own response size (Phase 7B hardening: "model
+responses are handled safely") — generous enough for a thorough,
+multi-sentence answer to any question this system is designed to
+answer (`docs/prompt_builder_design.md` Section 10's guardrails never
+call for a long-form response), while guaranteeing no single request
+can produce an unbounded amount of text."""
+
 _MAX_ATTEMPTS = 3
 """One initial attempt plus up to two retries — applied only to the
 transient failure categories in `_RETRYABLE_EXCEPTIONS` below."""
@@ -132,6 +140,7 @@ def ask_openai(prompt: dict, *, temperature: float = _DEFAULT_TEMPERATURE) -> st
                 messages=messages,
                 temperature=temperature,
                 timeout=_REQUEST_TIMEOUT_SECONDS,
+                max_completion_tokens=_MAX_RESPONSE_TOKENS,
             )
         except openai.AuthenticationError:
             raise LLMAuthenticationError(

@@ -4024,3 +4024,53 @@ this phase, printed completely bare).
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-16 — Phase 7B: Hardening
+
+**Task:** final v1 hardening — deployment/secret safety, snapshot
+freshness, LLM safety limits, CLI polish, version info — no new
+diagnostic capabilities.
+
+**Files created:** `scripts/sync_to_vm.sh` (secret-excluding VM
+transfer helper, refuses to proceed if `.env` reaches its staging
+dir); `src/nodeiq/cli/freshness.py` (`check_snapshot_freshness()` —
+warns when a snapshot is >24h old); `tests/cli/test_freshness.py`.
+
+**Files modified:** `src/nodeiq/llm/ask.py` (`answer_question()` now
+returns `{"answer", "snapshot_metadata"}` so callers can check
+freshness without re-loading the snapshot); `src/nodeiq/llm/prompt.py`
+(evidence/question each capped and truncated with a visible marker,
+never silently); `src/nodeiq/llm/client.py` (`max_completion_tokens`
+cap); `src/nodeiq/cli/main.py`/`shell.py` (freshness warnings wired
+into `report`/`ask`/the shell; shell prompt is now `NodeIQ>`;
+`--version` and a help epilog added); `pyproject.toml` (`version` is
+now `dynamic`, resolved from `nodeiq.__version__` — one source, not
+two); test files updated for the new `answer_question()` shape.
+`README.md`, `CHECKLIST.md`, `ROADMAP.md` fully refreshed to reflect
+actual v1 status (`ROADMAP.md` had been stale since Phase 3.6).
+
+**Security review:** grep swept the whole repo — `OPENAI_API_KEY` is
+read only in `client.py`; no real secret anywhere in tracked files;
+`.env` stays gitignored and untracked.
+
+**Quality review:** no duplicated logic (freshness/error-formatting/
+Q&A-rendering each written once, shared across `report`/`ask`/shell);
+collectors, coordinator, Summary Engine, and Report Formatter reviewed
+but not modified; CLI stays thin.
+
+**Tests:** 24 new (freshness, prompt truncation, response cap,
+`--version`), plus updates to `answer_question()` callers. Full suite:
+472 passed, 10 skipped.
+
+**Known gap, recorded honestly:** secret redaction for log/config
+*content* (CONTEXT.md Section 4) is still not implemented — `logs.py`
+captures raw `journalctl` text unredacted. This is the clearest
+remaining hardening item for a future session. Firewall-variance and
+non-root permission handling are believed already-graceful but
+unverified under those exact conditions.
+
+Phase 8 (Multipass VM fresh-install + scenario validation) recorded in
+the next entry below, once this commit is pushed and validated against
+the real, pushed `origin/main`.

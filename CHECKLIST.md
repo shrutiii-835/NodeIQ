@@ -10,10 +10,10 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 4.1A — Summary Engine Design (design only, complete)
-- **Next Phase:** Phase 4.1B — Summary Engine Implementation
-- **Overall Progress:** 114 / 137 tasks complete (~83%)
-- **Completed Tasks:** 114 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A)
+- **Current Phase:** Phase 4.1B — Summary Engine Implementation (complete)
+- **Next Phase:** Phase 4 continues (report layout/generation) or a refactoring sprint for Phase 4.1B's recorded opportunities
+- **Overall Progress:** 120 / 143 tasks complete (~84%)
+- **Completed Tasks:** 120 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B)
 - **Remaining Tasks:** 23 (1 in Phase 2, rest of Phase 4, all of Phases 5–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
@@ -184,6 +184,15 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Apply the Report Philosophy concretely: draw the line between deterministic templated headlines and interpretation; between fixed-threshold concerns and diagnosis/recommendations
 - [x] Propose an illustrative Summary object shape, a section lifecycle mirroring the collector lifecycle, and a module/naming proposal (single `summary.py` for v1, package split deferred)
 - [x] Quality review: reject a speculative `SummaryContext` object; record five genuine open questions rather than guessing
+
+### Phase 4.1B — Summary Engine Implementation
+
+- [x] Implement `summary.py`: `summarize_snapshot()` plus one pure `_summarize_<section>` per section, orchestrated via a plain `_REGISTERED_SUMMARIZERS` list mirroring `_REGISTERED_COLLECTORS`
+- [x] Rename the design's `facts` field to `evidence` (kept concise, never the full raw section) and add `highlights` as its own list field
+- [x] Add a deterministic `status` field (`healthy`/`warning`/`critical`/`unknown`) to every section, computed only from fixed, named-constant thresholds — no AI, no inferred causes, no recommendations
+- [x] Orchestrator isolates summarizer failures (mirrors `run_scan()`'s own crash-safety net) and never lets a missing/crashed section stop the rest
+- [x] Comprehensive unit tests (53) covering determinism, non-mutation of input, missing/crashed sections, summarizer-failure isolation, status logic per section, headline generation, and full structure conformance; a real, unmocked `run_scan()` integration test (portable — no Linux skip needed, since summarization itself has no OS dependency)
+- [x] Quality review: identified (not yet extracted) duplicated threshold-combination and value-vs-threshold logic across summarizers — recorded as Refactoring Opportunities for the next sprint
 
 - [ ] Design human-readable report layout
 - [ ] Implement report generator (snapshot JSON → readable text)

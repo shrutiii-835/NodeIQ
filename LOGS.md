@@ -2620,3 +2620,180 @@ open question in the document rather than resolved by assertion.
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-15 — Phase 4.1B: Summary Engine Implementation
+
+**Task**
+
+Implement the Summary Engine exactly as designed in
+`docs/summary_engine_design.md`, incorporating two agreed refinements:
+rename the design's `facts` field (and split it into two: a concise
+`evidence` dict plus a new `highlights` list), and add a deterministic
+`status` field (`healthy`/`warning`/`critical`/`unknown`) to every
+section, computed only from fixed, named-constant thresholds — never
+AI, never an inferred cause, never a recommendation.
+
+**Files created**
+
+- `src/nodeiq/summary.py` — `summarize_snapshot(snapshot) -> dict` (the
+  orchestrator) plus one pure `_summarize_<section>` function for each
+  of the 9 sections, a `_REGISTERED_SUMMARIZERS` list of `(name,
+  function)` pairs mirroring `_REGISTERED_COLLECTORS`, `_unavailable_section`
+  (the shared shape for a missing/crashed/failed-to-summarize section),
+  and three small presentation-only formatting helpers
+  (`_format_uptime`, `_format_bytes`, `_join_names` — the last capping
+  any name list at `_MAX_NAMED_ITEMS` with an "and N more" suffix).
+  Named threshold constants for every section that has one:
+  `_MEMORY_WARNING_PERCENT`/`_MEMORY_CRITICAL_PERCENT`,
+  `_SWAP_WARNING_PERCENT`, `_ZOMBIE_WARNING_COUNT`/`_ZOMBIE_CRITICAL_COUNT`,
+  `_BLOCKED_WARNING_COUNT`/`_BLOCKED_CRITICAL_COUNT`,
+  `_DISK_WARNING_PERCENT`/`_DISK_CRITICAL_PERCENT`,
+  `_FAILED_SERVICES_WARNING_COUNT`/`_FAILED_SERVICES_CRITICAL_COUNT`,
+  `_LOG_ERROR_WARNING_COUNT`/`_LOG_ERROR_CRITICAL_COUNT`.
+- `tests/test_summary.py` — 53 tests: overall Summary structure and
+  section-shape conformance; determinism across two calls on the same
+  snapshot (excluding the inherently-non-deterministic `generated_at`);
+  confirmation that `summarize_snapshot()` never mutates its input; a
+  crashed collector's section (`None`) and a section entirely absent
+  from an older snapshot both reported as unavailable; missing
+  `metadata` handled gracefully; a summarizer that raises isolated from
+  the rest (verified both that the other sections still summarize
+  correctly and that the exception is recorded in that one section's
+  `errors`); every section's specific status logic exercised at, above,
+  and below its own thresholds; headline/highlight generation; and the
+  three formatting helpers. Plus one genuinely real, unmocked
+  integration test calling the actual `run_scan()` — possible without
+  any Linux-only skip marker, since `summarize_snapshot()` itself has no
+  OS dependency of its own.
+
+**Files modified**
+
+- `CHECKLIST.md` — added a new "Phase 4.1B — Summary Engine
+  Implementation" section (all 6 tasks checked); Progress Summary
+  updated to 120/143 (~84%).
+
+**Reasoning**
+
+The refinement from the design's single `facts` dict to two separate
+fields (`evidence`, a concise dict of the specific numbers a status/
+concern was computed from; `highlights`, a list of short, readable
+notable-point strings like the top memory consumer or the default
+route) turned out to be a genuine improvement, not just a rename: it
+cleanly separates "machine-oriented backing data" from "human-oriented
+notable points," which is exactly the split a CLI formatter and an
+OpenAI prompt builder each want for different reasons (a CLI wants
+`highlights` to render directly; a prompt wants `evidence` as
+verifiable ground truth) — without either one needing to parse the
+other out of one mixed dict.
+
+Every section's `status` is computed from **only** two inputs: a number
+already present in the snapshot, and a threshold defined as a named
+module-level constant in this file. Nothing about status determination
+consults any other section, any historical data, or any inferred
+context — satisfying "never use AI, never infer causes, never
+recommend" as a structural property of the code, not just a stated
+intention. Three sections (`system`, `scheduled_jobs`) were deliberately
+left with **no** thresholds at all and an always-`"healthy"`-when-available
+status, because their own data genuinely has no health signal to
+threshold against — inventing one would have been exactly the kind of
+speculative judgment this phase's Report Philosophy forbids.
+
+Two specific status decisions are worth recording as deliberate,
+evidence-grounded choices rather than defaults: `services`' status is
+`"unknown"` (not `"healthy"`) when `systemd_available` is `False`, and
+`logs`' status is `"unknown"` (not `"healthy"`) when `source` is
+`"unavailable"` — in both cases, an absent data source is a real gap in
+what could be verified, and reporting it as `"healthy"` would silently
+misrepresent "we don't know" as "we checked and it's fine," exactly the
+conflation `PROJECT_RULES.md` Section 7 and `CONTEXT.md` Section 4 both
+warn against. Conversely, `network`'s status deliberately does **not**
+treat an undetected firewall as a concern at all (not even `"warning"`)
+— per `docs/network_collector.md`, firewall non-detection is the normal,
+expected outcome for an unprivileged scan, and flagging it as a concern
+would have been a false inference this layer must not make.
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** the full project was
+  copied to the Multipass Ubuntu 24.04 VM (`main-cattle`) using the same
+  clean `rsync`-filtered transfer procedure established since Phase 3.6,
+  and the full test suite run for real — 270 passed (260 locally on
+  macOS, with 10 tests needing a real Linux system). A genuine
+  `run_scan()` result (all 9 collectors succeeding) was summarized for
+  real on the VM and inspected directly — every section came back
+  `"healthy"` with correctly formatted headlines (e.g. `"Ubuntu 24.04.4
+  LTS, kernel 6.8.0-134-generic, up 4h 53m"`, `"Top memory consumer:
+  fwupd (41.6 MB)"`), confirming the whole `run_scan() →
+  summarize_snapshot()` pipeline works with real data, not just
+  hand-built fixtures. The temporary VM copy was removed afterward.
+- Test fixtures were hand-built dicts modeled directly on real collector
+  output (cross-checked against the real fields present in
+  `snapshots/sample_snapshot.json`, a gitignored file from earlier
+  verification) rather than reading that file directly — keeping the
+  test suite fully self-contained and independent of any non-committed
+  file, while still genuinely reflecting real shapes rather than
+  invented ones.
+- Confirmed via `grep` that neither `nodeiq.core.coordinator` nor
+  `nodeiq.core.snapshot` import `nodeiq.summary`, and `nodeiq.summary`
+  imports neither of them (only `nodeiq.core.errors`, for the shared
+  `error_entry` helper used when a summarizer crashes) — the
+  independence the design called for is structural, not just described.
+- Swept the touched files' headings (`grep -n '^#'`) to confirm
+  sequential, non-duplicated numbering before finishing.
+
+**Refactoring Opportunities (recorded only, not acted on this phase)**
+
+Per this task's explicit "do NOT refactor yet" instruction, every
+summarizer's threshold logic was written fully inline, even where a
+clear, repeatable pattern emerged across multiple sections:
+
+1. **The "combine two independent checks into one overall status" shape**
+   (track `has_critical`/`has_warning`/`evaluated_anything`, then
+   `if has_critical: critical elif has_warning: warning elif
+   evaluated_anything: healthy else: unknown`) appears identically in
+   `_summarize_cpu_memory`, `_summarize_processes`, and
+   `_summarize_disk` — three occurrences, meeting even the conservative
+   evidentiary bar `DECISIONS.md` ADR-012 already established for
+   extracting a shared helper.
+2. **The "single value vs. two fixed thresholds → healthy/warning/critical,
+   with a similarly-templated concern string" shape** appears, in
+   slightly different forms, within each of the six individual checks
+   inside those same three summarizers, plus `_summarize_services`
+   (`failed_services_count`) and `_summarize_logs` (`error_count`) — eight
+   occurrences total of essentially the same "value ≥ critical_threshold
+   → ...; elif value ≥ warning_threshold → ...; else healthy" shape. A
+   generic `_status_for_value(value, warning_threshold,
+   critical_threshold) -> str` (and/or a matching concern-string
+   builder) is the strongest candidate for the next sprint.
+3. **`_join_names`'s cap-with-"and N more" pattern is already shared**
+   (extracted directly in this phase, not left duplicated) — used by
+   `_summarize_services` and `_summarize_permissions` — recorded here
+   only for completeness, not as an outstanding opportunity.
+
+**Future TODOs**
+
+- A dedicated refactoring sprint (mirroring Phase 3.7's own) should
+  evaluate extracting the two duplicated threshold patterns above, once
+  a tenth section (or a change to an existing one) provides even
+  stronger evidence either way — or sooner, if Phase 4's report
+  generator surfaces the same "value vs. threshold" need a third
+  context.
+- `docs/summary_engine_design.md`'s five open questions remain open;
+  none were resolved by this implementation phase, per its own explicit
+  scope (implement as designed, don't re-litigate the design).
+- Phase 4 continues: a human-readable report layout and generator that
+  consumes `summarize_snapshot()`'s output — the first real downstream
+  consumer of the Summary Engine.
+- Still open from prior entries: field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

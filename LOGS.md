@@ -2984,3 +2984,119 @@ list means "nothing worth flagging," not "print an empty heading."
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-16 — Phase 5A: CLI Design
+
+**Task**
+
+Design the production CLI (`scan`, `report`, `ask`) that exposes the
+now-complete backend — 9 collectors, `run_scan()`, snapshot persistence,
+the Summary Engine, and the Report Formatter — without adding any new
+business logic at this layer. Design only, per this project's
+established "design before implementation" convention; no code, no
+`src/nodeiq/cli/` yet.
+
+**Files created**
+
+- `docs/cli_design.md` — full command reference for `scan`, `report`,
+  and `ask` (syntax, arguments, flags, exit codes, expected behavior,
+  interaction with snapshots/the Summary Engine/OpenAI); an entry-point
+  proposal (`python -m nodeiq <command>`, matching `README.md`'s own
+  existing Phase-5 forward-reference); an `argparse` subparser sketch
+  (illustrative only, not implementation); a `--section NAME`/`--fresh`
+  design for `report`/`ask`; a proposed error-handling and exit-code
+  scheme (`0` success, `1` no usable snapshot, `2` invalid arguments —
+  argparse's own default, `3` OpenAI/LLM unavailable, `4` unexpected
+  internal failure); a complete first-time-user walkthrough; a Future
+  Extensibility section; and six explicitly recorded open questions
+  (exact exit codes, `report --fresh` symmetry, a `scan --quiet` flag,
+  `ask --fresh`'s exact output shape, the still-undecided Phase 6
+  LLM-interpretation function signature, and whether to add a
+  `[project.scripts]` console-script entry point).
+
+**Files modified**
+
+- `CHECKLIST.md` — added a new "Phase 5A — CLI Design" subsection under
+  "Phase 5 — CLI" (6 tasks checked), relabeled the existing 4 unchecked
+  CLI tasks as "Phase 5B — CLI Implementation" for clarity, and checked
+  off Phase 4.2's forward-pointing "design a `nodeiq report` CLI
+  command" task now that this document covers it. Progress Summary
+  updated to 134/154 (~87%).
+
+**Reasoning**
+
+The CLI is designed as a strictly thin orchestration layer: every
+command is describable as "parse arguments, call already-existing
+functions in order, print or exit" — none of the three commands compute
+a status, format a number, or decide what's noteworthy, since all of
+that already belongs to `nodeiq.summary`/`nodeiq.report`. This is the
+same "one layer, one job" discipline already applied at every layer
+below the CLI, now extended to the outermost, user-facing boundary.
+
+The one piece of CLI-specific behavior this design does introduce —
+`report --section NAME` — is deliberately kept as plain dict filtering
+at the CLI layer (replacing `summary["sections"]` with a one-entry dict
+before calling `format_report()`), rather than a new parameter threaded
+into either `nodeiq.summary` or `nodeiq.report`. This is a direct payoff
+of `format_report()`'s existing "iterate whatever sections a Summary
+has, no hardcoded list" design (`docs/report_formatter.md`) — it already
+renders an arbitrary subset correctly, verified by its own test suite,
+so no changes to that module are needed to support this flag.
+
+`ask --fresh` is designed as CLI-layer composition, not a new
+capability: it runs `scan`'s own sequence (`run_scan()` +
+`save_snapshot()`) first, then hands the result into `ask`'s normal
+load-a-snapshot-and-interpret flow. `ask` itself never gains a code path
+to a collector or `subprocess` directly — this preserves CONTEXT.md's
+non-negotiable distinction between Layer 1 (collection) and Layer 2
+(interpretation) even though `--fresh` makes both layers reachable from
+one command.
+
+The proposed exit-code scheme distinguishes four failure categories
+(no usable snapshot; invalid arguments; OpenAI/LLM unavailable;
+unexpected internal failure) rather than one generic non-zero code,
+since each is actionable differently by a user or a script — but this
+exact numbering is explicitly flagged as a recommendation pending the
+project owner's confirmation, not asserted as final, per this task's
+"document open questions instead of guessing" instruction.
+
+**Important implementation notes**
+
+- Read `docs/architecture.md` as instructed; noted (but did not fix, as
+  this task's scope was design-only, documentation-limited to
+  `docs/cli_design.md`/`CHECKLIST.md`/`LOGS.md`) that it is now stale —
+  it still describes only 3 collectors and predates snapshot
+  persistence, the Summary Engine, and the Report Formatter entirely.
+  Recorded as a future TODO below rather than fixed silently as a side
+  effect of this task.
+- Cross-checked `DECISIONS.md` ADR-004 (argparse), ADR-005 (OpenAI),
+  and ADR-008 (`.env`/`python-dotenv`) before writing the design, so the
+  CLI design is consistent with decisions already made rather than
+  re-litigating them.
+- Swept `docs/cli_design.md` and `CHECKLIST.md` headings
+  (`grep -n '^#'`) — clean, sequential, Phase 5A/5B correctly nested
+  under Phase 5.
+
+**Future TODOs**
+
+- `docs/architecture.md` needs a refresh (still describes only 3
+  collectors, predates `nodeiq.core.snapshot`, `nodeiq.summary`, and
+  `nodeiq.report` entirely) — noted during this phase, not addressed,
+  since this task's documentation scope was limited to `docs/cli_design.md`.
+- Phase 5B should implement `src/nodeiq/cli/` per this design, resolving
+  the six open questions above (ideally with the project owner) before
+  or during implementation rather than guessing at implementation time.
+- Still open from prior entries: the two recorded Refactoring
+  Opportunities from Phase 4.1B; field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

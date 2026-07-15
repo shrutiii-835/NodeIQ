@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 4.2 — Report Formatter (complete)
-- **Next Phase:** A `nodeiq report` CLI command wiring the formatter to a loaded snapshot (Phase 5), or a refactoring sprint for Phase 4.1B's recorded opportunities
-- **Overall Progress:** 127 / 148 tasks complete (~86%)
-- **Completed Tasks:** 127 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2)
-- **Remaining Tasks:** 21 (1 in Phase 2, rest of Phase 4, all of Phases 5–8)
+- **Current Phase:** Phase 5A — CLI Design (complete)
+- **Next Phase:** Phase 5B — CLI Implementation (`scan`/`report`/`ask` wired up per `docs/cli_design.md`), or a refactoring sprint for Phase 4.1B's recorded opportunities
+- **Overall Progress:** 134 / 154 tasks complete (~87%)
+- **Completed Tasks:** 134 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A)
+- **Remaining Tasks:** 20 (1 in Phase 2, all of Phase 5B, all of Phases 6–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -204,9 +204,20 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Document the formatter (`docs/report_formatter.md`) — separation of Summary vs. Formatter, formatting philosophy, module/naming
 - [x] Quality review: single shared `_format_section` helper, no per-section formatting functions, no speculative abstractions added
 
-- [ ] Design a `nodeiq report` CLI command that wires this formatter to a loaded snapshot (Phase 5)
+- [x] Design a `nodeiq report` CLI command that wires this formatter to a loaded snapshot (Phase 5) — see Phase 5A below
 
 ## Phase 5 — CLI
+
+### Phase 5A — CLI Design (design only, no code)
+
+- [x] Document `scan`/`report`/`ask` syntax, arguments, flags, exit codes, expected behavior, and interaction with snapshots/Summary Engine/OpenAI (`docs/cli_design.md`)
+- [x] Design `report --section NAME` as CLI-layer dict filtering (no new parameters in `nodeiq.summary`/`nodeiq.report`)
+- [x] Design `ask --fresh` as CLI-layer composition of `scan`'s own sequence with `ask`'s normal load-and-interpret flow (no new live-system access inside `ask` itself)
+- [x] Define error handling and a proposed exit-code scheme for snapshot-not-found, malformed snapshot, OpenAI unavailable, scan failure, and invalid arguments
+- [x] Document the complete user flow (`scan` → `report` → `report --section` → `ask` → `ask --fresh`)
+- [x] Quality review: reject a speculative `CliContext` object; record six genuine open questions (exit codes, `report --fresh` symmetry, `scan --quiet`, `ask --fresh` output shape, the Phase 6 LLM function signature, console-script entry point) rather than guessing
+
+### Phase 5B — CLI Implementation
 
 - [ ] Wire up `argparse` with subcommands
 - [ ] Implement `nodeiq scan`

@@ -1,18 +1,21 @@
-# Architecture — Core Execution Infrastructure (Phase 3.1–3.2C)
+# Architecture — Core Execution Infrastructure (Phase 3.1–3.4)
 
 **Status:** `nodeiq.core` exists and is tested, including the collector
-contract types (`CollectorContext`, `CollectorResult`). `nodeiq.collectors`
-has its first real collector, `system.py` (Phase 3.2C) — the remaining
-eight are still scaffolding. No CLI or LLM integration exists yet.
+contract types (`CollectorContext`, `CollectorResult`) and a working
+`run_scan()` coordinator (Phase 3.4). `nodeiq.collectors` has two real
+collectors, `system.py` and `cpu_memory.py` — the remaining seven are
+still scaffolding. No CLI or LLM integration exists yet; `run_scan()`
+returns an in-memory snapshot dict and never writes to disk.
 
-This document explains the code built in Phase 3.1 and refined in Phase
-3.2B — the reusable foundation every collector runs on top of. For the
-*data* architecture (what a snapshot looks like), see
-[snapshot_schema.md](snapshot_schema.md) and
-[data_model_design.md](data_model_design.md). For the practical,
+This document explains the code built in Phase 3.1, refined in Phase
+3.2B, and completed (for the coordinator) in Phase 3.4 — the reusable
+foundation every collector runs on top of. For the *data* architecture
+(what a snapshot looks like), see [snapshot_schema.md](snapshot_schema.md)
+and [data_model_design.md](data_model_design.md). For the practical,
 how-to-write-a-collector contract, see
-[collector_guidelines.md](collector_guidelines.md). For the overall
-project architecture and phases, see [CONTEXT.md](../CONTEXT.md).
+[collector_guidelines.md](collector_guidelines.md). For the coordinator
+itself, see [coordinator.md](coordinator.md). For the overall project
+architecture and phases, see [CONTEXT.md](../CONTEXT.md).
 
 ---
 
@@ -20,18 +23,18 @@ project architecture and phases, see [CONTEXT.md](../CONTEXT.md).
 
 ```
                          ┌───────────────────────────┐
-                         │   nodeiq.core.coordinator   │  (placeholder only —
-                         │   builds one CollectorContext│  implementation pending)
-                         │   "run every collector,      │
+                         │   nodeiq.core.coordinator   │  run_scan() —
+                         │   builds one CollectorContext│  implemented,
+                         │   "run every collector,      │  Phase 3.4
                          │    assemble one snapshot"    │
                          └─────────────┬─────────────────┘
                                        │ passes the same CollectorContext
-                                       │ to every collect() call (future)
+                                       │ to every collect() call
                      ┌─────────────────┼─────────────────┐
                      ▼                 ▼                 ▼
               ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
               │ collectors/  │   │ collectors/  │   │ collectors/  │  ... (not yet
-              │  system.py   │   │   disk.py    │   │ services.py  │       built)
+              │  system.py   │   │cpu_memory.py │   │ services.py  │       built)
               │ collect(ctx) │   │ collect(ctx) │   │ collect(ctx) │
               └──────┬──────┘   └──────┬──────┘   └──────┬──────┘
                      │   each returns one CollectorResult  │
@@ -77,14 +80,14 @@ at the bottom knows anything about what's above it:
 - `nodeiq.core.runner` depends on Python's `subprocess` and
   `nodeiq.core.result` / `nodeiq.core.exceptions`. It knows nothing about
   collectors, the coordinator, or snapshots.
-- A collector (e.g. `system.py`, Phase 3.2C) depends on `nodeiq.core.runner`
-  to actually run commands, on `nodeiq.core.result` to understand what
-  came back, and on `nodeiq.core.collector` for the
+- A collector (e.g. `system.py`, `cpu_memory.py`) depends on
+  `nodeiq.core.runner` to actually run commands, on `nodeiq.core.result`
+  to understand what came back, and on `nodeiq.core.collector` for the
   `CollectorContext`/`CollectorResult` types. It knows nothing about any
-  other collector, and nothing about the coordinator that will eventually
-  call it.
-- `nodeiq.core.coordinator` (still a placeholder) will be the only module
-  that depends on multiple collectors at once.
+  other collector, and nothing about the coordinator that calls it.
+- `nodeiq.core.coordinator` is the only module that depends on multiple
+  collectors at once — this is deliberate and expected (see
+  `docs/coordinator.md`), not a violation of collector independence.
 
 This one-directional flow is what makes "one broken collector never stops
 the whole scan" (PROJECT_RULES.md Section 7) achievable: nothing upstream
@@ -136,22 +139,27 @@ what every `collect()` function receives and returns:
   `success` property. This replaces the earlier `(data, errors)` tuple
   contract from Phase 3.2A — see `DECISIONS.md` ADR-014 for why.
 
-### `nodeiq.collectors` (first collector built)
+### `nodeiq.collectors` (two collectors built)
 
-Holds one module per snapshot section (`system.py`, `disk.py`, ...), each
-exposing `collect(context: CollectorContext) -> CollectorResult`, using
-`nodeiq.core.runner` (or, for `/proc`-backed data, plain file I/O) to
-gather its own data. `system.py` (Phase 3.2C) is the first — see
-`docs/system_collector.md`. The remaining eight are still scaffolding,
-following the same contract in `docs/collector_guidelines.md`.
+Holds one module per snapshot section (`system.py`, `cpu_memory.py`,
+`disk.py`, ...), each exposing `collect(context: CollectorContext) ->
+CollectorResult`, using `nodeiq.core.runner` (or, for `/proc`-backed data,
+plain file I/O) to gather its own data. `system.py` (Phase 3.2C) and
+`cpu_memory.py` (Phase 3.3, renamed from `resource.py` in Phase 3.4) are
+built so far — see `docs/system_collector.md` and
+`docs/cpu_memory_collector.md`. The remaining seven are still
+scaffolding, following the same contract in `docs/collector_guidelines.md`.
 
-### `nodeiq.core.coordinator` (placeholder so far)
+### `nodeiq.core.coordinator` — `run_scan()` (MVP implemented, Phase 3.4)
 
-Will be the single orchestrator that builds one `CollectorContext`, calls
-every collector with it, catches whatever each one raises, and assembles
-the final JSON snapshot from each returned `CollectorResult` — see the
-module's own docstring for the full plan. Built once enough collectors
-exist to be worth orchestrating (Phase 3.2C, in progress).
+The single orchestrator: builds one `CollectorContext`, calls every
+registered collector with it, catches whatever each one raises, and
+assembles the final snapshot dict from each returned `CollectorResult` —
+see `docs/coordinator.md` for the full design and
+`src/nodeiq/core/coordinator.py`'s own docstring. `_REGISTERED_COLLECTORS`
+is currently `[system, cpu_memory]`; the remaining seven collectors will
+be added to that list as they're built. `run_scan()` returns an in-memory
+dict only — writing a snapshot to disk is Phase 5 (CLI).
 
 ---
 
@@ -177,9 +185,9 @@ running at all.
 
 No individual collector ever sees the full snapshot — each one only ever
 produces its own section, as the `data` field of the `CollectorResult` it
-returns. Only the coordinator (Phase 3.2C) will hold the full picture,
-because assembling the snapshot requires knowing about *every* collector
-at once — something no single collector should need to know. This keeps
+returns. Only the coordinator (Phase 3.4) holds the full picture, because
+assembling the snapshot requires knowing about *every* collector at once
+— something no single collector should need to know. This keeps
 each collector's job small and testable in isolation (see
 PROJECT_RULES.md Section 11, Testing Philosophy) while still producing
 one coherent, complete snapshot at the end.

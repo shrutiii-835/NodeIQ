@@ -1,6 +1,6 @@
-# Resource Collector — NodeIQ
+# CPU + Memory Collector — NodeIQ
 
-**Status:** Implemented and tested (`src/nodeiq/collectors/resource.py`),
+**Status:** Implemented and tested (`src/nodeiq/collectors/cpu_memory.py`),
 both with mocked unit tests and a real integration test verified against
 the Multipass Ubuntu 24.04 VM (`DECISIONS.md` ADR-002). This is the second
 real Linux collector, following `system.py`'s
@@ -8,20 +8,26 @@ real Linux collector, following `system.py`'s
 (`docs/system_collector.md`) — but needs **no commands at all**: every
 field comes from reading `/proc/meminfo` and `/proc/loadavg` directly.
 
+**Naming history:** this collector was originally built as
+`resource.py` (Phase 3.3) and renamed to `cpu_memory.py` in Phase 3.4 to
+match the module name `docs/snapshot_schema.md` Section 4 and
+`CONTEXT.md` Section 6 always expected — see "A Note on Naming and Schema
+Alignment" below for what's now aligned and what still isn't.
+
 Read this alongside [collector_guidelines.md](collector_guidelines.md)
 (the general contract every collector follows) and
 [snapshot_schema.md](snapshot_schema.md) (the existing `cpu_memory`
-section schema, which this v1 collector deliberately diverges from — see
-"A Note on Naming and Schema Alignment" below).
+section schema, which this v1 collector's field shape still deliberately
+diverges from — see "A Note on Naming and Schema Alignment" below).
 
 ---
 
 ## Responsibilities
 
-The Resource Collector answers "how loaded is this machine right now?" —
-directly supporting two of NodeIQ's headline example questions: "what is
-consuming memory?" and "is this system under load?" v1 gathers exactly
-eight facts, from two independent sources:
+The CPU + Memory Collector answers "how loaded is this machine right
+now?" — directly supporting two of NodeIQ's headline example questions:
+"what is consuming memory?" and "is this system under load?" v1 gathers
+exactly eight facts, from two independent sources:
 
 **From `/proc/meminfo`:**
 - `memory_used_bytes`, `memory_available_bytes`, `memory_usage_percent`
@@ -107,7 +113,7 @@ process count, and the most recently created PID) aren't collected in v1.
 | `memory_available_bytes` | Memory that could be made available to a new process without swapping, taken directly from `/proc/meminfo`'s `MemAvailable` (converted to bytes) — see "Why Available Memory Is Often More Useful Than Free Memory" in `LEARNING_NOTES.md`. |
 | `memory_usage_percent` | `memory_used_bytes` as a percentage of total memory, rounded to two decimal places. |
 | `swap_used_bytes` | Swap space actually in use, computed as `SwapTotal - SwapFree` (converted to bytes). `0` on a machine with no swap configured at all. |
-| `swap_usage_percent` | `swap_used_bytes` as a percentage of total swap space. `0.0` (not an error) when `SwapTotal` is `0` — see `_percent`'s division-by-zero guard in `resource.py`. |
+| `swap_usage_percent` | `swap_used_bytes` as a percentage of total swap space. `0.0` (not an error) when `SwapTotal` is `0` — see `_percent`'s division-by-zero guard in `cpu_memory.py`. |
 | `load_average_1m` / `_5m` / `_15m` | The system's load average over the last 1, 5, and 15 minutes, taken directly from `/proc/loadavg` — see "What Load Average Actually Means" in `LEARNING_NOTES.md`. |
 
 ---
@@ -127,9 +133,9 @@ process count, and the most recently created PID) aren't collected in v1.
 
 ## A Note on Naming and Schema Alignment
 
-`docs/snapshot_schema.md` Section 4 already defines a `cpu_memory` section
-(owned by a collector module it calls `collectors/cpu_memory.py`) with a
-different shape than this collector produces:
+`docs/snapshot_schema.md` Section 4 defines a `cpu_memory` section (owned
+by a collector module it calls `collectors/cpu_memory.py`) with a
+different field *shape* than this collector produces:
 
 ```json
 {
@@ -139,39 +145,40 @@ different shape than this collector produces:
 }
 ```
 
-This task explicitly named the module `resource.py` and specified flat,
-byte-denominated field names (`memory_used_bytes`, not a nested
-`memory.used_kb`). Rather than silently reconciling one against the
-other, this is recorded here as a **known, deliberate divergence** — the
-same treatment given to `system.py`'s `operating_system` field in
-`docs/system_collector.md`:
+As of Phase 3.4, the **module name and collector identity are now fully
+aligned**: the file was renamed from `resource.py` to `cpu_memory.py`,
+and `CollectorResult.collector_name` is `"cpu_memory"` — matching
+`docs/snapshot_schema.md` Section 4's `collectors/cpu_memory.py` exactly,
+and letting the coordinator (`docs/coordinator.md`) key the assembled
+snapshot's `cpu_memory` section directly off this collector's own
+declared name, with no special-casing.
 
-- **Module name:** `resource.py`, not `cpu_memory.py`. `collector_name`
-  in the returned `CollectorResult` is `"resource"` to match.
+What's **still** a known, deliberate divergence, not yet reconciled:
+
 - **Field naming and units:** flat `snake_case` fields in bytes
   (`memory_used_bytes`) rather than a nested `memory: {used_kb: ...}`
   structure in kilobytes.
 - **`core_count` is not collected.**
 
-This tension is tracked in `LOGS.md` and `CHECKLIST.md` as a follow-up —
-either `docs/snapshot_schema.md` Section 4 should be updated to match what
-was actually built, or a future task should reconcile `resource.py`'s
-output to the original `cpu_memory` shape. Not resolved silently either
-way.
+This remaining tension is tracked in `LOGS.md` and `CHECKLIST.md` as a
+follow-up — either `docs/snapshot_schema.md` Section 4 should be updated
+to match what was actually built, or a future task should reconcile
+`cpu_memory.py`'s output to the original nested-kB shape. Not resolved
+silently either way.
 
 ---
 
 ## Testing
 
-- **Unit tests** (`tests/collectors/test_resource.py`, 17 tests): every
+- **Unit tests** (`tests/collectors/test_cpu_memory.py`, 17 tests): every
   `_parse_*`/`_compute_*` function tested with literal sample text/dicts
   (no I/O at all, including the `SwapTotal == 0` division-by-zero edge
   case observed for real on the Multipass VM); file-based getters tested
   via monkeypatched module-level path constants and `tmp_path`;
   `collect()` tested end-to-end for "everything succeeds," "memory source
   fails, load average doesn't," and "load average fails, memory doesn't."
-- **Integration test** (`tests/collectors/test_resource_integration.py`, 1
-  test): calls the real `collect()` with no mocking at all, automatically
+- **Integration test** (`tests/collectors/test_cpu_memory_integration.py`,
+  1 test): calls the real `collect()` with no mocking at all, automatically
   skipped unless running on Linux. Verified by copying the code to the
   Multipass Ubuntu 24.04 VM (`main-cattle`), installing `pytest` there, and
   running the full suite — all 48 tests passed, including this one
@@ -192,7 +199,7 @@ for reviewing every collector built after it:
 - [x] Computation is separated from parsing: `_compute_memory_fields` and `_percent` are pure functions operating on already-parsed values, not on raw text.
 - [x] Division-by-zero and other realistic edge cases (`SwapTotal == 0`) are handled explicitly, not left to crash or silently produce `NaN`.
 - [x] No duplicated logic left unsimplified *within* this collector — `_get_memory_fields` and `_get_load_average_fields` originally repeated an identical "read a `/proc` file, wrap `OSError` as `ValueError`" block; both now call a shared private `_read_proc_file` helper, mirroring how `system.py`'s three command-based getters already share `_run_and_capture`.
-- [x] Duplication *across collectors* (`_error_entry`, and the same "read file, wrap as ValueError" shape now in both `system.py` and `resource.py`) is real but deliberately **not** extracted into `nodeiq.core` yet — `DECISIONS.md` ADR-012 sets a threshold of "three or more collectors" showing the same duplication before extracting a shared helper from evidence rather than speculatively. Noted here so it isn't missed when the third collector is built.
+- [x] Duplication *across collectors* (`_error_entry`, and the same "read file, wrap as ValueError" shape now in both `system.py` and `cpu_memory.py`) is real but deliberately **not** extracted into `nodeiq.core` yet — `DECISIONS.md` ADR-012 sets a threshold of "three or more collectors" showing the same duplication before extracting a shared helper from evidence rather than speculatively. Noted here so it isn't missed when the third collector is built.
 - [x] Field names use `snake_case`; no collector-invented redaction, logging, retries, or presentation logic.
 - [x] Unit tests cover parsing, computation, error handling, and `collect()` end-to-end; an integration test verifies real behavior on the Multipass VM.
 - [ ] *(Deferred, not yet reconciled)* Field names and structure fully match `docs/snapshot_schema.md`'s original `cpu_memory` section — see "A Note on Naming and Schema Alignment" above.

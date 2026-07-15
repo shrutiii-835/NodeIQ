@@ -1,4 +1,4 @@
-"""Resource collector: memory and CPU load.
+"""CPU + memory collector: memory usage and CPU load average.
 
 Answers "how loaded is this machine right now?" — one of NodeIQ's
 headline example questions ("what is consuming memory?", "is this system
@@ -9,7 +9,7 @@ comes from reading `/proc/meminfo` and `/proc/loadavg` directly.
 
 v1 scope is intentionally narrow: memory usage (from `/proc/meminfo`) and
 load averages (from `/proc/loadavg`). CPU utilization percentages are not
-collected yet — see docs/resource_collector.md.
+collected yet — see docs/cpu_memory_collector.md.
 """
 
 import time
@@ -56,7 +56,7 @@ def collect(context: CollectorContext) -> CollectorResult:
         errors.append(_error_entry(exc))
 
     return CollectorResult(
-        collector_name="resource",
+        collector_name="cpu_memory",
         data=data,
         errors=errors,
         duration_ms=(time.monotonic() - start_time) * 1000,

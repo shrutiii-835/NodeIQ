@@ -1016,3 +1016,175 @@ that don't quite match an earlier, more abstractly-designed document.
   decision for snapshot section shapes; `permissions` collector scope;
   `CONTEXT.md` Section 6 clarifying note (optional); Multipass setup docs
   in `README.md`.
+
+---
+
+## 2026-07-15 — Phase 3.4: Coordinator MVP
+
+**Task**
+
+Prove the whole architecture works end to end for the first time:
+`CollectorContext → collectors → CollectorResult → coordinator →
+snapshot`. Rename `resource.py` to `cpu_memory.py`, implement
+`run_scan()` for real (replacing the `NotImplementedError` placeholder
+from Phase 3.1), and verify with both mocked unit tests and a real
+end-to-end integration test on the Multipass VM. Per this task's scope:
+no CLI, no writing snapshots to disk, no additional collectors.
+
+**Files created**
+
+- `src/nodeiq/core/coordinator.py` — rewritten from a documented
+  placeholder to a real implementation: `run_scan()` builds one
+  `CollectorContext`, runs every module in `_REGISTERED_COLLECTORS =
+  [system, cpu_memory]`, aggregates `collection_errors` (both the normal
+  path — a collector's own reported errors — and a crash path, wrapping
+  each collector call in `try`/`except Exception` as a last-resort safety
+  net), builds `metadata` (`scan_timestamp`, `scan_duration_ms`,
+  `collector_count`, `nodeiq_version`, `hostname`), assembles the
+  snapshot, and validates it with `_validate_snapshot` before returning.
+- `tests/core/test_coordinator.py` — 11 unit tests using fake "collector
+  modules" (plain objects with a `collect(context)` function and a dotted
+  `__name__`) instead of the real collectors: every registered collector
+  executes, data assembles under the right key, errors aggregate
+  correctly (both reported and crash paths), a crash in one collector
+  doesn't stop the next, metadata is populated correctly (including the
+  `hostname` fallback to `None`), and `_validate_snapshot` both passes and
+  raises as expected.
+- `tests/core/test_coordinator_integration.py` — 1 integration test
+  calling the real `run_scan()` with the real `system`/`cpu_memory`
+  collectors, no mocking at all, skipped automatically unless
+  `platform.system() == "Linux"`.
+- `docs/coordinator.md` — responsibilities, why collectors remain
+  independent (now provable in running code, not just documented), why
+  the coordinator owns orchestration, the snapshot assembly process,
+  error aggregation, metadata generation, an explicit "MVP
+  Simplifications" section, and a Coordinator Review Checklist.
+
+**Files modified**
+
+- **Rename:** `src/nodeiq/collectors/resource.py` → `cpu_memory.py`
+  (`git mv`), `tests/collectors/test_resource.py` →
+  `test_cpu_memory.py`, `tests/collectors/test_resource_integration.py` →
+  `test_cpu_memory_integration.py`, `docs/resource_collector.md` →
+  `docs/cpu_memory_collector.md` — module docstring, `collector_name`
+  (now `"cpu_memory"`, matching the module name), all test imports/
+  monkeypatch targets, and the doc's own content updated throughout.
+  `docs/cpu_memory_collector.md`'s "A Note on Naming and Schema Alignment"
+  was rewritten to reflect that the module name is now aligned with
+  `docs/snapshot_schema.md` Section 4 — only the field-shape divergence
+  (flat bytes vs. nested kB, no `core_count`) remains open.
+- `src/nodeiq/__init__.py` — added `__version__ = "0.1.0"`, the canonical
+  source for `metadata.nodeiq_version`.
+- `src/nodeiq/collectors/__init__.py` — updated to describe both
+  collectors and the rename.
+- `docs/architecture.md` — status line, diagram, and every remaining
+  "placeholder" / stale "Phase 3.2C" mention describing the coordinator
+  updated to reflect `run_scan()` as implemented (Phase 3.4); the
+  "`nodeiq.collectors`" entry in "The Layers, Explained" updated to
+  mention `cpu_memory.py`.
+- `README.md` — folder-structure diagram updated to list
+  `docs/cpu_memory_collector.md`, `docs/coordinator.md`, and
+  `cpu_memory.py`.
+- `LEARNING_NOTES.md` — Phase 3.3 section's `resource.py` mentions updated
+  to `cpu_memory.py` for accuracy (this file is a living reference, not
+  an append-only historical diary like this one — see PROJECT_RULES.md
+  Section 14).
+- `CHECKLIST.md` — updated the collector task's inline note to reflect
+  the rename (module name divergence now resolved; field-shape divergence
+  still open); added a new "Phase 3.4 — Coordinator MVP" section (all 7
+  tasks checked); Progress Summary updated to 55/85 (~65%).
+- `ROADMAP.md` — Current Milestone moved to Phase 3.4 (complete);
+  Upcoming Milestone updated to describe registering future collectors
+  with the coordinator as they're built; added Phase 3.2C/3.3 and Phase
+  3.4 summaries to "Eventually Completed," in chronological order.
+
+**Reasoning**
+
+The rename (`resource.py` → `cpu_memory.py`) was done first, before
+touching the coordinator, because the coordinator's own registered-list
+and validation logic needed to reference the collector by its *correct*,
+final name (`cpu_memory`) rather than building against a name already
+known to be a temporary placeholder. This closes the module-name half of
+the divergence flagged in the Phase 3.3 entry above — the field-shape
+half (flat bytes vs. nested kB, no `core_count`) remains open and is
+still tracked.
+
+The coordinator's error-handling design directly mirrors what every
+collector already does, one level up: `system.py` and `cpu_memory.py`
+each wrap their own internal failure points in narrow `try`/`except`
+blocks and report failures as data rather than crashing; `run_scan()`
+does the same thing for whole *collectors* — wrapping each
+`collector_module.collect(context)` call so that one collector crashing
+can never stop the loop from reaching the next one. This is explicitly
+a **last-resort** safety net, not a substitute for a collector's own
+error handling — both collectors built so far already handle every
+anticipated failure internally and have never needed this catch to
+actually trigger outside of the coordinator's own crash-path unit tests.
+
+`_REGISTERED_COLLECTORS` is a plain list of imported modules, deliberately
+not a registry class, decorator-based registration, or dynamic
+discovery mechanism — directly following this task's own instruction to
+avoid plugin systems. Adding a collector to a future scan will mean
+adding one import and one list entry, nothing more.
+
+`_validate_snapshot` is similarly minimal: a list-comprehension key check
+and a `ValueError` with the missing keys named. With only two collectors
+registered, every code path in `run_scan()` already guarantees `system`
+and `cpu_memory` are populated (successfully or as a recorded crash with
+`None`), so this check is a forward-looking defensive measure — a safety
+net for a *coordinator* bug, not something today's collectors can
+actually trigger.
+
+**Important implementation notes**
+
+- **Verified genuinely, not just written to spec:** `run_scan()` was run
+  locally on macOS first (no `/proc`, no `hostname`-adjacent Linux tools
+  missing) to confirm graceful degradation end to end — both collectors'
+  fields correctly came back partially `None` with clear
+  `collection_errors`, and `metadata.hostname` still correctly resolved
+  from whatever `system` managed to determine. The full project was then
+  copied to the Multipass Ubuntu 24.04 VM (`main-cattle`), a venv created,
+  `pytest` installed, and the full 60-test suite run for real — all 60
+  passed, including both new coordinator tests and the full integration
+  test. A genuine, complete, zero-error sample snapshot was captured from
+  the VM and saved locally to `snapshots/sample_snapshot.json` (gitignored
+  per `PROJECT_RULES.md` Section 1 — not committed) for inspection. The
+  temporary copy was removed from the VM afterward.
+- **A test bug, caught and fixed during this task:** the first unit test
+  for "every registered collector executes" used arbitrary fake names
+  (`"alpha"`, `"beta"`) for the fake collectors, which correctly *failed*
+  `_validate_snapshot`'s required-section check (since neither name is
+  `system` or `cpu_memory`) — proving the validation check actually works,
+  but also revealing the test itself was checking the wrong thing. Fixed
+  by using `"system"`/`"cpu_memory"` as the fake names for that specific
+  test, while a separate pair of tests exercises `_validate_snapshot`
+  directly with deliberately-wrong section names.
+- Quality review confirmed via `grep` that neither `system.py` nor
+  `cpu_memory.py` imports the other or the coordinator — the only
+  dependency in either direction is coordinator → collectors, which is
+  the designed, expected relationship (see `docs/architecture.md`,
+  "Dependency Flow"), not a violation of collector independence.
+- Re-verified `CHECKLIST.md`'s Progress Summary against a direct checkbox
+  count: 55 complete, 30 remaining, 85 total (~65%).
+
+**Future TODOs**
+
+- Phase 3.2C: implement the `processes` collector next, and register it
+  with the coordinator (`_REGISTERED_COLLECTORS`) as part of that task.
+- Follow-up: decide whether to grow `run_scan()`'s `metadata` and
+  top-level snapshot shape to fully match `docs/snapshot_schema.md`
+  Sections 1–2 (top-level `timestamp`/`hostname`, `schema_version`, two
+  scan timestamps, `collectors_run`/`collectors_skipped` lists), or update
+  that schema doc to reflect the simpler MVP shape actually built — see
+  `docs/coordinator.md`'s "MVP Simplifications."
+- Phase 5 (CLI): wire `nodeiq scan` to call `run_scan()` and write the
+  result to `snapshots/` as JSON — the first time a snapshot actually
+  gets persisted to disk.
+- Still open from prior entries: `_error_entry`/"read file, wrap as
+  ValueError" duplication across collectors (revisit once a third
+  collector exists, per ADR-012's threshold); `cpu_memory.py`'s
+  field-shape divergence from `docs/snapshot_schema.md` Section 4;
+  `PROJECT_RULES.md` Section 8 (Logging Philosophy) vs. ADR-013
+  reconciliation; `dataclasses` vs. `TypedDict` decision for snapshot
+  section shapes; `permissions` collector scope; `CONTEXT.md` Section 6
+  clarifying note (optional); Multipass setup docs in `README.md`.

@@ -1,6 +1,6 @@
-"""Integration test for nodeiq.collectors.resource.
+"""Integration test for nodeiq.collectors.cpu_memory.
 
-Unlike test_resource.py, nothing here is mocked — this calls the real
+Unlike test_cpu_memory.py, nothing here is mocked — this calls the real
 `collect()` against the real machine's `/proc/meminfo` and `/proc/loadavg`.
 That only makes sense on a real Linux system (see DECISIONS.md ADR-002:
 development and integration testing happens in a Multipass Ubuntu VM), so
@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from nodeiq.collectors import resource
+from nodeiq.collectors import cpu_memory
 from nodeiq.core.collector import CollectorContext
 
 pytestmark = pytest.mark.skipif(
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.skipif(
 def test_collect_populates_every_field_on_a_real_linux_system():
     context = CollectorContext(scan_start_time=datetime.now(timezone.utc))
 
-    result = resource.collect(context)
+    result = cpu_memory.collect(context)
 
     assert result.errors == [], f"unexpected collection errors: {result.errors}"
     assert result.data["memory_used_bytes"] > 0

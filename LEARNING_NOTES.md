@@ -615,7 +615,7 @@ SwapFree:              0 kB
 ...
 ```
 
-`resource.py` only reads four of these lines — `MemTotal`,
+`cpu_memory.py` only reads four of these lines — `MemTotal`,
 `MemAvailable`, `SwapTotal`, `SwapFree` — and computes everything else
 (bytes used, percentages) from just those four numbers. The file has many
 more lines (`Buffers`, `Cached`, `Dirty`, and so on) describing exactly
@@ -636,8 +636,8 @@ A load average of `1.0` on a single-core machine means the CPU was
 *exactly* as busy as it could sustainably be — one thing running or
 waiting, all the time. A load average of `4.0` on a 4-core machine means
 roughly the same thing: demand matched capacity. This is the one place
-where `resource.py`'s current scope has a real gap worth knowing about:
-without `core_count` (deferred — see `docs/resource_collector.md`), a raw
+where `cpu_memory.py`'s current scope has a real gap worth knowing about:
+without `core_count` (deferred — see `docs/cpu_memory_collector.md`), a raw
 load average number alone doesn't tell you whether `0.56` is "barely
 loaded" (a 1-core machine) or "essentially idle" (an 8-core machine) — you
 need to know the core count to interpret it, and NodeIQ doesn't collect
@@ -662,7 +662,7 @@ productively for caching.
 `MemAvailable` already accounts for this: it's the kernel's own estimate
 of "how much memory could actually be given to a new process right now,"
 including memory it would reclaim from the cache if asked. This is why
-`resource.py` uses `MemAvailable` (not `MemFree`) to compute
+`cpu_memory.py` uses `MemAvailable` (not `MemFree`) to compute
 `memory_used_bytes`/`memory_usage_percent` — it answers "is this machine
 actually running low on memory?" far more reliably than `MemFree` does.
 
@@ -680,7 +680,7 @@ it's easy to conflate them:
   "how busy was the CPU at this exact instant" isn't really a meaningful
   question the way "how much memory is in use right now" is. This is also
   why CPU *utilization percentage* (a different, related metric NodeIQ
-  doesn't collect yet — see `docs/resource_collector.md`) requires taking
+  doesn't collect yet — see `docs/cpu_memory_collector.md`) requires taking
   two separate readings of `/proc/stat` a short time apart and computing
   the difference, whereas every memory field here comes from a single
   point-in-time read of `/proc/meminfo`.
@@ -688,7 +688,86 @@ it's easy to conflate them:
 A machine can be high on one and low on the other — plenty of free memory
 but a CPU struggling to keep up with requests, or memory nearly exhausted
 while the CPU sits mostly idle waiting on disk I/O. This is exactly why
-`resource.py` treats them as two independent data sources internally, even
+`cpu_memory.py` treats them as two independent data sources internally, even
 though they're gathered by the same collector: a `/proc/meminfo` failure
 should never prevent `/proc/loadavg` from still being read, and vice
 versa.
+
+---
+
+## Concepts Introduced in Phase 3.4 (Coordinator MVP)
+
+### What does "orchestration" mean?
+
+This concept was first introduced in Phase 3.1's notes, but Phase 3.4 is
+where it stopped being a design idea and became running code. Orchestration
+means coordinating several independent pieces of work so they combine
+into one larger result, without those pieces needing to know about each
+other. `run_scan()` is a small, literal example: it has a list of two
+collectors (`system`, `cpu_memory`), calls each one in turn, and combines
+whatever they each hand back into one snapshot dict — neither collector
+ever sees the other, or even knows `run_scan()` exists.
+
+The concrete proof that this actually works, not just in theory: the unit
+tests in `tests/core/test_coordinator.py` use entirely fake "collector"
+objects that share zero code with the real `system.py`/`cpu_memory.py` —
+and `run_scan()`'s orchestration logic works identically either way,
+because it only ever depends on the shape (`collect(context) ->
+CollectorResult`), never on what a specific collector actually does
+inside that shape.
+
+### Why is orchestration kept separate from implementation?
+
+"Implementation" here means the actual work of gathering one category of
+data (what `system.py` and `cpu_memory.py` do); "orchestration" means
+deciding *which* work to run, *in what order*, and *how to combine the
+results* (what `run_scan()` does). Keeping these as separate concerns —
+literally separate files, `nodeiq.collectors.*` vs.
+`nodeiq.core.coordinator` — means each can change independently:
+
+- Adding a tenth collector never requires touching any of the other nine,
+  only adding one line to `_REGISTERED_COLLECTORS`.
+- Changing how errors get aggregated, or what fields `metadata` contains,
+  never requires touching any collector's internals — that logic lives
+  in exactly one place, `run_scan()`.
+
+If orchestration and implementation were mixed together — say, if
+`system.py` itself needed to know it was "collector #1 of 2" or had to
+call `cpu_memory.py` directly — every collector would become entangled
+with every other collector's existence, which is exactly the coupling
+`docs/data_model_design.md` and `docs/collector_guidelines.md` have been
+designed to prevent from the very first collector onward.
+
+### Why does the coordinator own metadata?
+
+`metadata` (scan timestamp, duration, collector count, NodeIQ's own
+version, hostname) describes facts about the **scan itself** — when it
+ran, how long it took, what produced it — not facts about the machine
+being scanned. No individual collector could sensibly own this data even
+if it wanted to: a single collector doesn't know how many *other*
+collectors ran, or how long the *whole* scan took (only the coordinator,
+which starts a timer before the first collector and stops it after the
+last one, can know that). This is the same reasoning already applied to
+`collection_errors` in earlier phases — some facts are fundamentally
+about the scan as a whole, and belong to whichever piece of code actually
+represents "the whole scan," which is the coordinator by definition.
+
+### Why is architecture validated incrementally?
+
+NodeIQ could have tried to build the coordinator and all nine collectors
+at once, then tested everything together for the first time at the end.
+Instead, this project built one collector (`system.py`), proved the
+`CollectorContext`/`CollectorResult` contract worked with real Linux
+commands and files, then built a second, very differently-shaped
+collector (`cpu_memory.py`, using zero commands, only `/proc` files) to
+prove the same contract handled that shape too — and *only then* built
+the coordinator to prove all of it could be orchestrated together.
+
+Each step answered one specific question before moving to the next:
+"does the contract work for a command-based collector?", "does it also
+work for a file-only collector?", "can these actually be orchestrated
+into one snapshot?" If the contract had a flaw, it was far cheaper to
+discover and fix it after one collector than after nine — the same
+"catch mistakes on paper, not in code" reasoning from Phase 2's notes,
+just applied one layer up: catch architectural mistakes with two
+collectors, not nine.

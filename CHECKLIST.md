@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.2C — Collectors (Implementation, in progress — 2 of 10 tasks done)
+- **Current Phase:** Phase 3.4 — Coordinator MVP (complete)
 - **Next Phase:** Phase 3.2C continues (next: `processes` collector)
-- **Overall Progress:** 48 / 79 tasks complete (~61%)
-- **Completed Tasks:** 48 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 2 of 10 in Phase 3.2C)
-- **Remaining Tasks:** 31 (1 in Phase 2, 8 in Phase 3.2C, all of Phases 4–8)
+- **Overall Progress:** 55 / 85 tasks complete (~65%)
+- **Completed Tasks:** 55 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, 2 of 9 in Phase 3.2C, all of Phase 3.4)
+- **Remaining Tasks:** 30 (1 in Phase 2, 7 in Phase 3.2C, all of Phases 4–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -88,7 +88,7 @@ stay listed (unchecked) until their phase is actually worked on.
 ### Phase 3.2C — Collectors (Implementation, in progress)
 
 - [x] System metadata collector (`system`: hostname, operating_system, kernel_version, architecture, uptime_seconds — `os_name`/`os_version` split and `boot_time` deferred, see `docs/system_collector.md`)
-- [x] Resource collector (`resource.py`: memory/swap usage from `/proc/meminfo`, load averages from `/proc/loadavg` — CPU utilization percentages deferred; built as `resource.py` rather than the originally planned `cpu_memory.py`, with flat byte-denominated field names rather than the nested kB shape in `docs/snapshot_schema.md` Section 4 — see `docs/resource_collector.md`'s "A Note on Naming and Schema Alignment," not yet reconciled)
+- [x] CPU + memory collector (`cpu_memory`: memory/swap usage from `/proc/meminfo`, load averages from `/proc/loadavg` — CPU utilization percentages deferred; module renamed from `resource.py` to `cpu_memory.py` in Phase 3.4 to match `docs/snapshot_schema.md` Section 4; field-shape divergence — flat byte fields vs. nested kB, no `core_count` — still not reconciled, see `docs/cpu_memory_collector.md`)
 - [ ] Processes collector (`processes`)
 - [ ] Disk + inodes collector (`disk`)
 - [ ] Services collector (`services`)
@@ -96,7 +96,16 @@ stay listed (unchecked) until their phase is actually worked on.
 - [ ] Network collector (`network`)
 - [ ] Scheduled jobs collector (`scheduled_jobs`: cron + systemd timers)
 - [ ] Permissions collector (`permissions` — scope open, see `docs/snapshot_schema.md` Section 11)
-- [ ] Implement the scan coordinator for real (replaces the Phase 3.1 placeholder): build a `CollectorContext`, run all collectors independently, assemble one snapshot from their `CollectorResult`s
+
+### Phase 3.4 — Coordinator MVP
+
+- [x] Rename `resource.py` to `cpu_memory.py` (module, tests, docs, and all references)
+- [x] Implement `run_scan()`: build one `CollectorContext`, run registered collectors, aggregate errors, assemble an in-memory snapshot (no disk writes yet)
+- [x] Register collectors in a simple list (`_REGISTERED_COLLECTORS`) — no plugin system
+- [x] Populate `metadata` (`scan_timestamp`, `scan_duration_ms`, `collector_count`, `nodeiq_version`, `hostname`)
+- [x] Add lightweight snapshot validation (`_validate_snapshot`) — no external validation library
+- [x] Coordinator unit tests (fake collectors) and an end-to-end integration test verified on the Multipass VM
+- [x] Document the coordinator (`docs/coordinator.md`)
 
 ## Phase 4 — Report Generation
 

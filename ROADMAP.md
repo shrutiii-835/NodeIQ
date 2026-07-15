@@ -8,19 +8,18 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ## Current Milestone
 
-**Phase 3.2C — Collectors (Implementation, in progress)**
+**Phase 3.4 — Coordinator MVP**
 
-Two real Linux collectors are built and verified — both with mocked unit
-tests and real integration tests run against the Multipass Ubuntu 24.04
-VM: `system.py` (`hostname`, `operating_system`, `kernel_version`,
-`architecture`, `uptime_seconds` — see `docs/system_collector.md`) and
-`resource.py` (memory/swap usage from `/proc/meminfo`, load averages from
-`/proc/loadavg` — see `docs/resource_collector.md`). Both follow the
-`CollectorContext` → `collect()` → `CollectorResult` pattern designed in
-Phases 3.2A/3.2B, and neither runs `resource.py`'s commands at all —
-everything comes from `/proc`. Seven collectors remain (`processes`,
-`disk`, `services`, `logs`, `network`, `scheduled_jobs`, `permissions`),
-plus the real scan coordinator.
+The architecture works end to end for the first time:
+`CollectorContext → collectors → CollectorResult → coordinator →
+snapshot`. `run_scan()` (`nodeiq.core.coordinator`) builds one
+`CollectorContext`, runs the two existing collectors (`system.py` and
+`cpu_memory.py` — renamed from `resource.py` to match
+`docs/snapshot_schema.md`), aggregates their errors, builds `metadata`,
+and assembles an in-memory snapshot — verified with both mocked unit
+tests and a real end-to-end integration test on the Multipass Ubuntu
+24.04 VM (see `docs/coordinator.md`). No CLI and no disk-writing exist
+yet.
 
 ---
 
@@ -29,11 +28,10 @@ plus the real scan coordinator.
 **Phase 3.2C continued — Remaining Collectors**
 
 Implement each remaining Linux data collector independently, following
-`system.py` and `resource.py` as templates: processes, disk + inodes,
-services, logs, network, scheduled jobs, permissions — plus the real scan
-coordinator that builds a `CollectorContext`, runs them all, and assembles
-one snapshot from their `CollectorResult`s, matching the schema designed
-in Phase 2.
+`system.py` and `cpu_memory.py` as templates: processes, disk + inodes,
+services, logs, network, scheduled jobs, permissions — registering each
+one with the coordinator (`docs/coordinator.md`) as it's built, so
+`run_scan()`'s snapshot grows one section at a time.
 
 ---
 
@@ -90,3 +88,12 @@ in Phase 2.
   `CollectorContext`/`CollectorResult` dataclasses in
   `nodeiq.core.collector`; ADR-014 recorded. See `LOGS.md` for this
   entry's full record.
+- **Phase 3.2C / 3.3 — System and CPU + Memory Collectors**: the first two
+  real Linux collectors built and verified on the Multipass VM. See
+  `docs/system_collector.md` and `docs/cpu_memory_collector.md`.
+- **Phase 3.4 — Coordinator MVP**: `run_scan()` implemented for real,
+  replacing the Phase 3.1 placeholder — builds a `CollectorContext`, runs
+  the registered collectors, aggregates `collection_errors`, builds
+  `metadata`, and assembles an in-memory snapshot, verified end to end on
+  the Multipass VM; `resource.py` renamed to `cpu_memory.py`. See
+  `LOGS.md`, "Phase 3.4: Coordinator MVP."

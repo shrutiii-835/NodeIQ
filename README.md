@@ -120,13 +120,15 @@ NodeIQ/
 │   ├── architecture.md
 │   ├── collector_guidelines.md
 │   ├── system_collector.md
-│   └── resource_collector.md
+│   ├── cpu_memory_collector.md
+│   └── coordinator.md
 ├── snapshots/            # JSON snapshots produced by `nodeiq scan`
 ├── src/
 │   └── nodeiq/           # Application source code (Python package)
-│       ├── core/         # Shared execution infrastructure (runner, etc.)
+│       ├── core/         # Shared execution infrastructure (runner,
+│       │                 # coordinator, etc.)
 │       └── collectors/   # One module per snapshot section — system.py
-│                         # and resource.py are built; more to come
+│                         # and cpu_memory.py are built; more to come
 └── tests/                # Automated tests (pytest), mirroring src/nodeiq/
 ```
 

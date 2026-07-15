@@ -4345,3 +4345,96 @@ Multipass VM.
 git log -1` that the VM was still on commit `e9c124f`, one behind the
 `a0d1d45` CPU-usage commit — the user hadn't pulled/reinstalled yet.
 Flagged this explicitly rather than assuming a new code bug.
+
+---
+
+## 2026-07-16 — Feature: widen Summary Engine evidence for an internal-tool threat model
+
+**Task:** a real VM session (terminal transcript + a real snapshot
+pasted by the user) surfaced two more "insufficient evidence" cases:
+`give me system logs` and `can you tell me anything about firewall`.
+Diagnosis (no code changes in that pass) found both were genuine,
+undocumented evidence-exposure gaps — `_summarize_logs` never forwarded
+message content (only counts), and `_summarize_network` never surfaced
+the firewall detection result at all (not even as a null/"undetected"
+value), despite `docs/network_collector.md`'s reasoning only justifying
+excluding firewall from the `status` calculation, not from `evidence`
+entirely.
+
+A systematic per-collector audit followed (comparing every
+`_summarize_*` function's `evidence` dict against its collector's full
+raw output), which found the same class of gap in nearly every section:
+`disk` (only the aggregate highest-usage %, no per-filesystem detail),
+`services` (failed/restarting names only in unstructured `concerns`
+text, never structured, and never capped-free), `scheduled_jobs` (the
+most severe — only bare counts, zero cron/timer content, with no
+documented reason at all), and `permissions` (owner/group/mode per path
+never surfaced, though this collector's narrow *scope* — see
+`docs/permissions_collector.md` — was a deliberate, documented decision,
+unlike the others).
+
+The user then clarified the actual threat model this system needs to
+satisfy: it's an internal tool consumed only by the project team, who
+already have direct access to every collector's raw output. Their
+definition of "sensitive data" is specifically passwords, keys, and
+anything that could leak those — not usernames, IPs, ports, mount
+points, or service descriptions. Given that, keeping most of this
+detail out of evidence was overly cautious given who's actually asking
+questions, not a security necessity.
+
+**Files modified:**
+- `src/nodeiq/summary.py` — imported `redact_secrets` (previously used
+  only by `collectors/logs.py`) and applied it to the two fields, across
+  all 9 collectors, that are genuinely free-form human-authored text
+  that could contain a literal secret: `processes.command` (full
+  `/proc/<pid>/cmdline`) and `scheduled_jobs`' cron job `command`.
+  Every other field across every summarizer was widened without any new
+  redaction, since none of it can structurally contain a password or key:
+  - `_summarize_cpu_memory`: `load_average_5m`/`load_average_15m` added
+    as their own evidence fields (previously only embedded in a
+    highlight string).
+  - `_summarize_processes`: `pid`, `owner`, `state`, and redacted
+    `command` added to every top-N entry in
+    `top_processes_by_memory`/`top_processes_by_cpu`.
+  - `_summarize_disk`: full per-filesystem list added (`mount_point`,
+    `filesystem`, `usage_percent`, `inode_usage_percent`,
+    `total_bytes`, `used_bytes`, `available_bytes`), uncapped — mounted
+    filesystem counts are small enough on any real system.
+  - `_summarize_services`: `running_services`/`failed_services`/
+    `restarting_services` promoted into structured, uncapped evidence
+    (name + description each) — the existing `_join_names`-capped
+    `highlights`/`concerns` text is unchanged, kept only for
+    readability, not as the only place these names appear.
+  - `_summarize_scheduled_jobs`: full `cron_jobs` (user, schedule,
+    redacted command) and `systemd_timers` (name, unit) lists added —
+    previously this summarizer exposed nothing but two bare counts.
+  - `_summarize_permissions`: full `checked_paths` list added (path,
+    exists, owner, group, mode, world_writable) for all four checked
+    paths — this collector's narrow scope (checking only 4 fixed paths)
+    is unchanged and still deliberate; only the fields it already checks
+    are now exposed in full.
+  - `_summarize_network`: `interfaces` (name, state, IPv4/IPv6
+    addresses), `listening_ports` (protocol, address, port, process
+    name, pid), and `firewall_tool`/`firewall_enabled` (surfaced even
+    when `None`/undetected) all added.
+  - `_summarize_logs`: `recent_entries` (timestamp, severity, unit,
+    message) added — safe to forward as-is since every message was
+    already redacted at collection time in `collectors/logs.py`.
+- `tests/test_summary.py` — 13 new tests: evidence-completeness checks
+  for each widened summarizer, plus two redaction-specific tests
+  confirming a password in a process `command` and a bearer token in a
+  cron `command` are both redacted before reaching evidence.
+- `CHECKLIST.md` updated.
+
+**Verified:** full suite (554 passed, 10 skipped — up from 544 passed
+locally before this change) and a manual run of `summarize_snapshot()`
+against a real local snapshot confirming every new evidence field
+populates from real collector data without crashing, and that a full
+`build_prompt()` user message for a real snapshot stayed well under the
+50,000-character evidence cap (~10.2k chars).
+
+**Deliberately unchanged:** the deterministic `status`/`concerns`
+threshold layer (untouched — this was orthogonal to the sensitivity
+question), the overall collect → summarize → prompt → LLM architecture,
+and `permissions.py`'s own narrow, documented scope (which 4 paths it
+checks, not what it does with the fields it already gathers).

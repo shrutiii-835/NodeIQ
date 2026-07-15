@@ -395,6 +395,22 @@ def test_cpu_memory_evidence_includes_cpu_usage_percent():
     assert result["evidence"]["cpu_usage_percent"] == 12.5
 
 
+def test_cpu_memory_evidence_includes_all_load_average_windows():
+    result = summary._summarize_cpu_memory(
+        {
+            "cpu_usage_percent": 12.5,
+            "memory_usage_percent": 27.7,
+            "load_average_1m": 0.5,
+            "load_average_5m": 0.4,
+            "load_average_15m": 0.3,
+        },
+        [],
+    )
+    assert result["evidence"]["load_average_1m"] == 0.5
+    assert result["evidence"]["load_average_5m"] == 0.4
+    assert result["evidence"]["load_average_15m"] == 0.3
+
+
 # --- processes status logic ---------------------------------------------------------
 
 
@@ -467,23 +483,96 @@ def test_processes_evidence_includes_top_processes_by_memory_and_cpu():
             "zombie_count": 0,
             "blocked_process_count": 0,
             "top_by_memory": [
-                {"process_name": "sshd", "memory_rss_bytes": 1048576},
-                {"process_name": "nodeiq", "memory_rss_bytes": 524288},
+                {
+                    "process_name": "sshd",
+                    "pid": 851,
+                    "owner": "root",
+                    "state": "S",
+                    "command": "/usr/sbin/sshd -D",
+                    "memory_rss_bytes": 1048576,
+                },
+                {
+                    "process_name": "nodeiq",
+                    "pid": 2001,
+                    "owner": "ubuntu",
+                    "state": "R",
+                    "command": "nodeiq ask cpu usage",
+                    "memory_rss_bytes": 524288,
+                },
             ],
             "top_by_cpu": [
-                {"process_name": "nodeiq", "cpu_usage_percent": 42.5},
-                {"process_name": "sshd", "cpu_usage_percent": None},
+                {
+                    "process_name": "nodeiq",
+                    "pid": 2001,
+                    "owner": "ubuntu",
+                    "state": "R",
+                    "command": "nodeiq ask cpu usage",
+                    "cpu_usage_percent": 42.5,
+                },
+                {
+                    "process_name": "sshd",
+                    "pid": 851,
+                    "owner": "root",
+                    "state": "S",
+                    "command": "/usr/sbin/sshd -D",
+                    "cpu_usage_percent": None,
+                },
             ],
         },
         [],
     )
     assert result["evidence"]["top_processes_by_memory"] == [
-        {"process_name": "sshd", "memory": "1.0 MB"},
-        {"process_name": "nodeiq", "memory": "512.0 KB"},
+        {
+            "process_name": "sshd",
+            "pid": 851,
+            "owner": "root",
+            "state": "S",
+            "command": "/usr/sbin/sshd -D",
+            "memory": "1.0 MB",
+        },
+        {
+            "process_name": "nodeiq",
+            "pid": 2001,
+            "owner": "ubuntu",
+            "state": "R",
+            "command": "nodeiq ask cpu usage",
+            "memory": "512.0 KB",
+        },
     ]
     assert result["evidence"]["top_processes_by_cpu"] == [
-        {"process_name": "nodeiq", "cpu_usage_percent": 42.5},
+        {
+            "process_name": "nodeiq",
+            "pid": 2001,
+            "owner": "ubuntu",
+            "state": "R",
+            "command": "nodeiq ask cpu usage",
+            "cpu_usage_percent": 42.5,
+        },
     ]
+
+
+def test_processes_evidence_redacts_secrets_in_command():
+    result = summary._summarize_processes(
+        {
+            "process_count": 1,
+            "zombie_count": 0,
+            "blocked_process_count": 0,
+            "top_by_memory": [
+                {
+                    "process_name": "myapp",
+                    "pid": 42,
+                    "owner": "ubuntu",
+                    "state": "R",
+                    "command": "myapp --password=hunter2",
+                    "memory_rss_bytes": 1024,
+                },
+            ],
+        },
+        [],
+    )
+    command = result["evidence"]["top_processes_by_memory"][0]["command"]
+    assert "hunter2" not in command
+    assert "[REDACTED]" in command
 
 
 def test_processes_evidence_top_lists_capped_at_max_top_processes():
@@ -544,6 +633,56 @@ def test_disk_critical_at_inode_usage_critical_threshold():
         {"highest_disk_usage_percent": 0.0, "highest_inode_usage_percent": summary._DISK_CRITICAL_PERCENT}, []
     )
     assert result["status"] == "critical"
+
+
+def test_disk_evidence_includes_every_filesystem():
+    result = summary._summarize_disk(
+        {
+            "highest_disk_usage_percent": 60.0,
+            "highest_inode_usage_percent": 10.0,
+            "filesystems": [
+                {
+                    "mount_point": "/",
+                    "filesystem": "/dev/sda1",
+                    "usage_percent": 60.0,
+                    "inode_usage_percent": 10.0,
+                    "total_bytes": 1000,
+                    "used_bytes": 600,
+                    "available_bytes": 400,
+                },
+                {
+                    "mount_point": "/boot",
+                    "filesystem": "/dev/sda2",
+                    "usage_percent": 20.0,
+                    "inode_usage_percent": 5.0,
+                    "total_bytes": 500,
+                    "used_bytes": 100,
+                    "available_bytes": 400,
+                },
+            ],
+        },
+        [],
+    )
+    assert result["evidence"]["filesystems"] == [
+        {
+            "mount_point": "/",
+            "filesystem": "/dev/sda1",
+            "usage_percent": 60.0,
+            "inode_usage_percent": 10.0,
+            "total_bytes": 1000,
+            "used_bytes": 600,
+            "available_bytes": 400,
+        },
+        {
+            "mount_point": "/boot",
+            "filesystem": "/dev/sda2",
+            "usage_percent": 20.0,
+            "inode_usage_percent": 5.0,
+            "total_bytes": 500,
+            "used_bytes": 100,
+            "available_bytes": 400,
+        },
+    ]
 
 
 # --- services status logic -----------------------------------------------------------
@@ -658,6 +797,31 @@ def test_services_restarting_escalates_healthy_to_warning():
     assert result["status"] == "warning"
 
 
+def test_services_evidence_lists_are_uncapped_and_include_descriptions():
+    failed = [
+        {"name": f"svc{i}.service", "description": f"Service {i}"} for i in range(10)
+    ]
+    result = summary._summarize_services(
+        {
+            "systemd_available": True,
+            "running_services_count": 1,
+            "running_services": [{"name": "ssh.service", "description": "OpenSSH server"}],
+            "failed_services_count": len(failed),
+            "failed_services": failed,
+            "restarting_services": [],
+        },
+        [],
+    )
+    assert len(result["evidence"]["failed_services"]) == 10
+    assert result["evidence"]["failed_services"][9] == {
+        "name": "svc9.service",
+        "description": "Service 9",
+    }
+    assert result["evidence"]["running_services"] == [
+        {"name": "ssh.service", "description": "OpenSSH server"}
+    ]
+
+
 # --- permissions status logic ---------------------------------------------------------
 
 
@@ -686,6 +850,34 @@ def test_permissions_warning_when_a_path_could_not_be_checked():
 def test_permissions_unknown_when_no_paths_checked():
     result = summary._summarize_permissions({"checked_paths": []}, [])
     assert result["status"] == "unknown"
+
+
+def test_permissions_evidence_includes_owner_group_mode_per_path():
+    result = summary._summarize_permissions(
+        {
+            "checked_paths": [
+                {
+                    "path": "/etc/shadow",
+                    "exists": True,
+                    "owner": "root",
+                    "group": "shadow",
+                    "mode": "640",
+                    "world_writable": False,
+                }
+            ]
+        },
+        [],
+    )
+    assert result["evidence"]["checked_paths"] == [
+        {
+            "path": "/etc/shadow",
+            "exists": True,
+            "owner": "root",
+            "group": "shadow",
+            "mode": "640",
+            "world_writable": False,
+        }
+    ]
 
 
 # --- network status logic -----------------------------------------------------------
@@ -722,6 +914,66 @@ def test_network_never_flags_undetected_firewall_as_a_concern():
     )
     assert result["status"] == "healthy"
     assert result["concerns"] == []
+
+
+def test_network_evidence_includes_firewall_result_even_when_undetected():
+    result = summary._summarize_network(
+        {
+            "interfaces": [{"name": "eth0", "state": "up"}],
+            "listening_ports": [],
+            "default_route": None,
+            "firewall": {"tool": None, "enabled": None},
+        },
+        [],
+    )
+    assert result["evidence"]["firewall_tool"] is None
+    assert result["evidence"]["firewall_enabled"] is None
+
+
+def test_network_evidence_includes_interfaces_and_listening_ports():
+    result = summary._summarize_network(
+        {
+            "interfaces": [
+                {
+                    "name": "eth0",
+                    "state": "up",
+                    "ipv4_addresses": ["10.0.0.5"],
+                    "ipv6_addresses": [],
+                }
+            ],
+            "listening_ports": [
+                {
+                    "protocol": "tcp",
+                    "local_address": "0.0.0.0",
+                    "port": 22,
+                    "process_name": "sshd",
+                    "pid": 851,
+                }
+            ],
+            "default_route": None,
+            "firewall": {"tool": "ufw", "enabled": True},
+        },
+        [],
+    )
+    assert result["evidence"]["interfaces"] == [
+        {
+            "name": "eth0",
+            "state": "up",
+            "ipv4_addresses": ["10.0.0.5"],
+            "ipv6_addresses": [],
+        }
+    ]
+    assert result["evidence"]["listening_ports"] == [
+        {
+            "protocol": "tcp",
+            "local_address": "0.0.0.0",
+            "port": 22,
+            "process_name": "sshd",
+            "pid": 851,
+        }
+    ]
+    assert result["evidence"]["firewall_tool"] == "ufw"
+    assert result["evidence"]["firewall_enabled"] is True
 
 
 # --- logs status logic ---------------------------------------------------------------
@@ -765,6 +1017,34 @@ def test_logs_critical_at_error_critical_threshold():
     assert result["status"] == "critical"
 
 
+def test_logs_evidence_includes_recent_entries_content():
+    result = summary._summarize_logs(
+        {
+            "source": "journalctl",
+            "warning_count": 1,
+            "error_count": 0,
+            "truncated": False,
+            "recent_entries": [
+                {
+                    "timestamp": "2026-07-15T10:00:00+00:00",
+                    "severity": "warning",
+                    "unit": "sshd.service",
+                    "message": "Accepted publickey for ubuntu",
+                }
+            ],
+        },
+        [],
+    )
+    assert result["evidence"]["recent_entries"] == [
+        {
+            "timestamp": "2026-07-15T10:00:00+00:00",
+            "severity": "warning",
+            "unit": "sshd.service",
+            "message": "Accepted publickey for ubuntu",
+        }
+    ]
+
+
 # --- system / scheduled_jobs: no thresholds apply -------------------------------------
 
 
@@ -792,6 +1072,56 @@ def test_scheduled_jobs_healthy_when_counts_present():
 def test_scheduled_jobs_unknown_when_no_counts_present():
     result = summary._summarize_scheduled_jobs({}, [])
     assert result["status"] == "unknown"
+
+
+def test_scheduled_jobs_evidence_includes_cron_jobs_and_timers():
+    result = summary._summarize_scheduled_jobs(
+        {
+            "cron_job_count": 1,
+            "timer_count": 1,
+            "cron_jobs": [
+                {
+                    "user": "root",
+                    "schedule": "0 2 * * *",
+                    "command": "/usr/local/bin/backup.sh",
+                    "source_file": "/etc/crontab",
+                }
+            ],
+            "systemd_timers": [{"name": "apt-daily.timer", "unit": "apt-daily.service"}],
+        },
+        [],
+    )
+    assert result["evidence"]["cron_jobs"] == [
+        {
+            "user": "root",
+            "schedule": "0 2 * * *",
+            "command": "/usr/local/bin/backup.sh",
+        }
+    ]
+    assert result["evidence"]["systemd_timers"] == [
+        {"name": "apt-daily.timer", "unit": "apt-daily.service"}
+    ]
+
+
+def test_scheduled_jobs_evidence_redacts_secrets_in_cron_command():
+    result = summary._summarize_scheduled_jobs(
+        {
+            "cron_job_count": 1,
+            "timer_count": 0,
+            "cron_jobs": [
+                {
+                    "user": "root",
+                    "schedule": "0 2 * * *",
+                    "command": "curl -H 'Authorization: Bearer abc123' https://example.com",
+                    "source_file": "/etc/crontab",
+                }
+            ],
+        },
+        [],
+    )
+    command = result["evidence"]["cron_jobs"][0]["command"]
+    assert "abc123" not in command
+    assert "[REDACTED]" in command
 
 
 # --- formatting helpers -----------------------------------------------------------------

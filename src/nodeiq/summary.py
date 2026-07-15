@@ -33,6 +33,7 @@ docs/summary_engine_design.md Section 2).
 from datetime import datetime, timezone
 
 from nodeiq.core.errors import error_entry
+from nodeiq.core.redaction import redact_secrets
 
 # --- Thresholds -----------------------------------------------------------------
 #
@@ -239,10 +240,11 @@ def _summarize_system(data: dict, errors: list) -> dict:
 def _summarize_cpu_memory(data: dict, errors: list) -> dict:
     """Status is driven by `cpu_usage_percent`, `memory_usage_percent`,
     and `swap_usage_percent`, each against its own fixed thresholds.
-    `load_average_*` is surfaced as a highlight only — see
+    `load_average_*` has no threshold applied — see
     docs/cpu_memory_collector.md's own note that a load average number
     alone is hard to threshold meaningfully without a core count, which
-    this collector doesn't collect (deferred).
+    this collector doesn't collect (deferred) — but all three windows are
+    still surfaced in full in `evidence`, not just the 1-minute figure.
     """
     cpu_usage_percent = data.get("cpu_usage_percent")
     memory_usage_percent = data.get("memory_usage_percent")
@@ -322,6 +324,8 @@ def _summarize_cpu_memory(data: dict, errors: list) -> dict:
         "memory_usage_percent": memory_usage_percent,
         "swap_usage_percent": swap_usage_percent,
         "load_average_1m": data.get("load_average_1m"),
+        "load_average_5m": data.get("load_average_5m"),
+        "load_average_15m": data.get("load_average_15m"),
     }
 
     return {
@@ -342,11 +346,14 @@ def _summarize_processes(data: dict, errors: list) -> dict:
     significant on their own, unlike raw process counts.
 
     `evidence` includes up to `_MAX_TOP_PROCESSES_IN_EVIDENCE` processes
-    each from `top_by_memory`/`top_by_cpu` (trimmed to just
-    `process_name` plus the one relevant figure) — enough for `ask` to
-    answer "top N processes" or "which process uses the most CPU/memory"
-    without duplicating the collector's full per-process detail (pid,
-    owner, command, state) that isn't needed to answer those questions.
+    each from `top_by_memory`/`top_by_cpu`, including `pid`, `owner`, and
+    `state` — this system is consumed only by the project team, who
+    already have direct access to this same data via the collectors, so
+    there's no reason to withhold it here. `command` (the full
+    `/proc/<pid>/cmdline`) is the one field passed through
+    `redact_secrets()` first: unlike every other process field, a
+    command line is free-form text a human could have put anything into,
+    including a password or token passed as an argument.
     """
     process_count = data.get("process_count")
     zombie_count = data.get("zombie_count")
@@ -424,6 +431,10 @@ def _summarize_processes(data: dict, errors: list) -> dict:
         "top_processes_by_memory": [
             {
                 "process_name": p.get("process_name"),
+                "pid": p.get("pid"),
+                "owner": p.get("owner"),
+                "state": p.get("state"),
+                "command": redact_secrets(p.get("command")),
                 "memory": _format_bytes(p.get("memory_rss_bytes")),
             }
             for p in top_by_memory[:_MAX_TOP_PROCESSES_IN_EVIDENCE]
@@ -431,6 +442,10 @@ def _summarize_processes(data: dict, errors: list) -> dict:
         "top_processes_by_cpu": [
             {
                 "process_name": p.get("process_name"),
+                "pid": p.get("pid"),
+                "owner": p.get("owner"),
+                "state": p.get("state"),
+                "command": redact_secrets(p.get("command")),
                 "cpu_usage_percent": p.get("cpu_usage_percent"),
             }
             for p in top_cpu_with_data[:_MAX_TOP_PROCESSES_IN_EVIDENCE]
@@ -453,6 +468,11 @@ def _summarize_disk(data: dict, errors: list) -> dict:
     `highest_inode_usage_percent` against fixed thresholds — a
     filesystem can be mostly empty by space yet exhausted by inode count
     (see docs/disk_collector.md), so both are checked independently.
+
+    `evidence` includes every checked filesystem's own mount point, usage,
+    and inode figures (not just the system-wide highest) — the number of
+    mounted filesystems is small enough on any real system that there's
+    no practical reason to cap this list.
     """
     highest_disk_usage_percent = data.get("highest_disk_usage_percent")
     highest_inode_usage_percent = data.get("highest_inode_usage_percent")
@@ -514,6 +534,18 @@ def _summarize_disk(data: dict, errors: list) -> dict:
         "highest_disk_usage_percent": highest_disk_usage_percent,
         "highest_inode_usage_percent": highest_inode_usage_percent,
         "filesystem_count": len(filesystems),
+        "filesystems": [
+            {
+                "mount_point": fs.get("mount_point"),
+                "filesystem": fs.get("filesystem"),
+                "usage_percent": fs.get("usage_percent"),
+                "inode_usage_percent": fs.get("inode_usage_percent"),
+                "total_bytes": fs.get("total_bytes"),
+                "used_bytes": fs.get("used_bytes"),
+                "available_bytes": fs.get("available_bytes"),
+            }
+            for fs in filesystems
+        ],
     }
 
     return {
@@ -538,7 +570,12 @@ def _summarize_services(data: dict, errors: list) -> dict:
     Running service names are surfaced as a highlight (via
     `_join_names`'s existing "and N more" cap) so `ask` can name
     specific active services, without the highlight growing unbounded
-    on a system with hundreds of services.
+    on a system with hundreds of services. `evidence` additionally
+    carries the full, uncapped name+description for every running,
+    failed, and restarting service — the highlight/concern strings stay
+    capped for readability, but the structured evidence itself isn't
+    trimmed, so a question about a specific service not in the first 5
+    named can still be answered.
     """
     if not data.get("systemd_available"):
         return {
@@ -599,6 +636,18 @@ def _summarize_services(data: dict, errors: list) -> dict:
         "running_services_count": running_services_count,
         "failed_services_count": failed_services_count,
         "enabled_services_count": data.get("enabled_services_count"),
+        "running_services": [
+            {"name": s.get("name"), "description": s.get("description")}
+            for s in running_services
+        ],
+        "failed_services": [
+            {"name": s.get("name"), "description": s.get("description")}
+            for s in failed_services
+        ],
+        "restarting_services": [
+            {"name": s.get("name"), "description": s.get("description")}
+            for s in restarting_services
+        ],
     }
 
     return {
@@ -617,9 +666,17 @@ def _summarize_scheduled_jobs(data: dict, errors: list) -> dict:
     inherently healthy or unhealthy — no thresholds apply. Status is
     `"healthy"` whenever counts were determined at all, `"unknown"`
     otherwise.
+
+    `evidence` includes every cron job's schedule and command, and every
+    systemd timer's name/unit. A cron job's `command` is passed through
+    `redact_secrets()` first — like a process's command line, it's
+    free-form text a human wrote, and cron entries commonly embed
+    passwords or tokens directly as arguments.
     """
     cron_job_count = data.get("cron_job_count")
     timer_count = data.get("timer_count")
+    cron_jobs = data.get("cron_jobs") or []
+    systemd_timers = data.get("systemd_timers") or []
 
     if cron_job_count is None and timer_count is None:
         status = "unknown"
@@ -631,6 +688,18 @@ def _summarize_scheduled_jobs(data: dict, errors: list) -> dict:
     evidence = {
         "cron_job_count": cron_job_count,
         "timer_count": timer_count,
+        "cron_jobs": [
+            {
+                "user": job.get("user"),
+                "schedule": job.get("schedule"),
+                "command": redact_secrets(job.get("command")),
+            }
+            for job in cron_jobs
+        ],
+        "systemd_timers": [
+            {"name": timer.get("name"), "unit": timer.get("unit")}
+            for timer in systemd_timers
+        ],
     }
 
     return {
@@ -651,6 +720,11 @@ def _summarize_permissions(data: dict, errors: list) -> dict:
     security audit. A path that couldn't be checked at all (`exists is
     None`) counts as a warning, since that's a real gap in what could be
     verified, distinct from a path that simply doesn't exist.
+
+    `evidence` includes every checked path's own owner/group/mode, not
+    just the aggregate counts — ownership and permission bits on this
+    fixed, conservative path list aren't secrets, so there's no reason to
+    keep them out of structured evidence.
     """
     checked_paths = data.get("checked_paths") or []
 
@@ -677,6 +751,17 @@ def _summarize_permissions(data: dict, errors: list) -> dict:
     evidence = {
         "checked_path_count": len(checked_paths),
         "world_writable_count": len(world_writable_paths),
+        "checked_paths": [
+            {
+                "path": p.get("path"),
+                "exists": p.get("exists"),
+                "owner": p.get("owner"),
+                "group": p.get("group"),
+                "mode": p.get("mode"),
+                "world_writable": p.get("world_writable"),
+            }
+            for p in checked_paths
+        ],
     }
 
     return {
@@ -695,11 +780,19 @@ def _summarize_network(data: dict, errors: list) -> dict:
     firewall detection is deliberately excluded from status, since
     docs/network_collector.md establishes that no firewall tool being
     detectable is the normal, expected outcome for an unprivileged scan,
-    not evidence of a problem.
+    not evidence of a problem. That exclusion applies to `status` only:
+    the firewall detection result is still surfaced in `evidence` (even
+    when no tool could be detected), so `ask` has something honest to
+    answer with rather than nothing at all.
+
+    `evidence` also includes every interface's name/state/addresses and
+    every listening port — none of this is a secret on an internal tool
+    used by the team that already runs these collectors directly.
     """
     interfaces = data.get("interfaces") or []
     listening_ports = data.get("listening_ports") or []
     default_route = data.get("default_route")
+    firewall = data.get("firewall") or {}
 
     up_interfaces = [iface for iface in interfaces if iface.get("state") == "up"]
 
@@ -729,6 +822,27 @@ def _summarize_network(data: dict, errors: list) -> dict:
         "interface_count": len(interfaces),
         "up_interface_count": len(up_interfaces),
         "listening_port_count": len(listening_ports),
+        "interfaces": [
+            {
+                "name": iface.get("name"),
+                "state": iface.get("state"),
+                "ipv4_addresses": iface.get("ipv4_addresses"),
+                "ipv6_addresses": iface.get("ipv6_addresses"),
+            }
+            for iface in interfaces
+        ],
+        "listening_ports": [
+            {
+                "protocol": port.get("protocol"),
+                "local_address": port.get("local_address"),
+                "port": port.get("port"),
+                "process_name": port.get("process_name"),
+                "pid": port.get("pid"),
+            }
+            for port in listening_ports
+        ],
+        "firewall_tool": firewall.get("tool"),
+        "firewall_enabled": firewall.get("enabled"),
     }
 
     return {
@@ -747,6 +861,13 @@ def _summarize_logs(data: dict, errors: list) -> dict:
     `"unavailable"` (journalctl absent — see docs/logs_collector.md)
     yields `"unknown"`, not `"healthy"` — an absent log source is a real
     gap, not evidence of a clean log.
+
+    `evidence` includes the actual `recent_entries` content (timestamp,
+    severity, unit, message) — every message was already passed through
+    `redact_secrets()` at collection time (`collectors/logs.py`), so this
+    copy is safe to forward as-is; only the counts were being surfaced
+    before, which meant a question like "what do the logs say" could
+    never be answered even though the data was already collected.
     """
     source = data.get("source")
     error_count = data.get("error_count")
@@ -785,6 +906,15 @@ def _summarize_logs(data: dict, errors: list) -> dict:
         "warning_count": warning_count,
         "error_count": error_count,
         "truncated": data.get("truncated"),
+        "recent_entries": [
+            {
+                "timestamp": entry.get("timestamp"),
+                "severity": entry.get("severity"),
+                "unit": entry.get("unit"),
+                "message": entry.get("message"),
+            }
+            for entry in data.get("recent_entries") or []
+        ],
     }
 
     return {

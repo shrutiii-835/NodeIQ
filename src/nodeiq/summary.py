@@ -843,6 +843,7 @@ def _summarize_network(data: dict, errors: list) -> dict:
         ],
         "firewall_tool": firewall.get("tool"),
         "firewall_enabled": firewall.get("enabled"),
+        "firewall_detection_note": firewall.get("detection_note"),
     }
 
     return {

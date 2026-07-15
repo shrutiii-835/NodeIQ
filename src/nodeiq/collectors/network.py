@@ -309,11 +309,11 @@ def _detect_firewall(context: CollectorContext) -> dict:
     """
     result = run_command(_UFW_STATUS_COMMAND, timeout=context.default_timeout)
     if result.succeeded:
-        return {"tool": "ufw", "enabled": _parse_ufw_status(result.stdout)}
+        return {"tool": "ufw", "enabled": _parse_ufw_status(result.stdout), "detection_note": None}
 
     result = run_command(_NFT_LIST_COMMAND, timeout=context.default_timeout)
     if result.succeeded:
-        return {"tool": "nft", "enabled": bool(result.stdout.strip())}
+        return {"tool": "nft", "enabled": bool(result.stdout.strip()), "detection_note": None}
 
     result = run_command(_IPTABLES_LIST_COMMAND, timeout=context.default_timeout)
     if result.succeeded:
@@ -321,9 +321,24 @@ def _detect_firewall(context: CollectorContext) -> dict:
         # deeper rule inspection, which this task's scope excludes (see
         # docs/network_collector.md) — reported as detected but
         # undeterminable, rather than guessed.
-        return {"tool": "iptables", "enabled": None}
+        return {"tool": "iptables", "enabled": None, "detection_note": None}
 
-    return {"tool": None, "enabled": None}
+    return {"tool": None, "enabled": None, "detection_note": _firewall_failure_reason(result)}
+
+
+def _firewall_failure_reason(result) -> str:
+    """A short, factual note quoting why the last firewall detection
+    attempt (`iptables`, the final fallback) failed — this is the
+    command's own reported reason, never an inferred explanation, so
+    `ask` has something concrete to explain *why* firewall status is
+    unknown rather than only being able to say that it is.
+    """
+    if result.error:
+        return f"Could not run a firewall detection command: {result.error}"
+    stderr = result.stderr.strip()
+    if stderr:
+        return f"Could not run a firewall detection command: {stderr.splitlines()[0]}"
+    return "No firewall detection tool (ufw, nft, or iptables) could be run on this scan."
 
 
 def _parse_ufw_status(raw_text: str) -> bool:

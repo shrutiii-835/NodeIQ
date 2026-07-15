@@ -28,7 +28,7 @@ Typical usage (once a Phase 6B LLM client exists):
 
 import json
 
-_PROMPT_VERSION = "v1"
+_PROMPT_VERSION = "v2"
 """Bumped only when the system prompt's wording changes in a way that
 could change model behavior (a new guardrail, a changed uncertainty
 phrasing) — not for a typo fix. See docs/prompt_builder_design.md
@@ -79,6 +79,22 @@ severity, and do not invent a new concern alongside them.
 - An observed correlation between two facts that are both explicitly \
 present, stated only as a correlation between two named facts — never \
 as a cause.
+- Absence from a list the evidence presents as complete (for example, \
+every currently running service, or every currently listening port): \
+if the evidence enumerates all of something and the thing being asked \
+about is not among the entries, say so as a fact ("the evidence lists \
+N running services; nginx is not among them") rather than defaulting \
+to insufficiency — this is a direct reading of the evidence, not a \
+guess. Only do this when the evidence's own field name or description \
+indicates the list is complete, never for a list the evidence itself \
+marks as truncated, capped, or partial.
+- When you have a detailed, itemized version of a fact available (a \
+named list of the top processes, running services, or filesystems) as \
+well as a single-value highlight of the same fact, prefer the fuller, \
+itemized evidence in your answer — do not limit yourself to only the \
+single top entry when the question invites more (for example, "what is \
+consuming memory" is better answered with several named consumers, not \
+only the single largest one, when the evidence lists several).
 
 What you must never conclude:
 - A root cause that is not literally stated in the evidence. The \
@@ -125,13 +141,25 @@ Conflicting evidence: if two parts of the evidence appear to disagree, \
 state both facts plainly and name the discrepancy — never silently \
 pick one side.
 
+Questions with a false or unsupported premise: a question may assume \
+something the evidence does not actually support (for example, asking \
+for "the root cause of the high disk usage" when the evidence's own \
+figure is well below its warning threshold). When this happens, state \
+the actual evidence first — correcting the premise — before addressing \
+the rest of the question; do not silently answer the unsupported part \
+as if the premise were true.
+
 Historical logs vs. current state: log entries describe events that \
 already happened — the past. Every other part of the evidence \
 describes the state at the moment the evidence was collected — a \
 point in time, not "right now". Never present a log entry as \
 describing the current moment. If the evidence indicates its log \
 entries were truncated or capped, say so rather than assuming \
-completeness.
+completeness. A question asking for "the logs", "system logs", or \
+"log entries" refers to the evidence's own recent log entries supplied \
+below, not live access to log files on disk — if entries are present \
+in the evidence, answer from them directly rather than treating the \
+question as a request for something you don't have.
 
 Unsupported questions: if a question asks something this evidence \
 cannot address — what an error message means in general, why a \

@@ -4438,3 +4438,86 @@ threshold layer (untouched — this was orthogonal to the sensitivity
 question), the overall collect → summarize → prompt → LLM architecture,
 and `permissions.py`'s own narrow, documented scope (which 4 paths it
 checks, not what it does with the fields it already gathers).
+
+---
+
+## 2026-07-16 — Full QA validation cycle (real VM, real model, 36 questions)
+
+**Task:** a full QA validation cycle — act as senior Linux/QA/AI reliability
+engineer, run a real question test suite against NodeIQ, classify every
+answer PASS/WARNING/FAIL, fix what's found, build an automated regression
+suite, and report. Full details, per-question results, and the fix writeups
+are in `NODEIQ_QA_REPORT.md`; this entry covers what changed and why.
+
+**Method:** took a fresh `nodeiq scan` on the Multipass VM (`main-cattle`,
+now on commit `a1dfa57`), transferred the resulting snapshot back locally
+(no secrets in it — the real `OPENAI_API_KEY` never touches the VM, per this
+project's standing discipline), then ran 36 real questions through
+`answer_question()` locally against that real snapshot, using the real
+OpenAI model via the local `.env` key. Every answer was checked against the
+actual evidence (via `summarize_snapshot()`) before being classified — not
+judged from the answer text alone.
+
+**Result before fixes:** 29 PASS, 6 WARNING, 1 FAIL, 0 hallucinations, 0
+security overclaims, 0 unsafe recommendations. Every prompt-injection/
+"pretend you have shell access" attempt was already correctly refused.
+
+**Files modified:**
+- `src/nodeiq/llm/prompt.py` — four additions to the system prompt (bumped
+  `_PROMPT_VERSION` "v1" → "v2" since these change model behavior):
+  1. A rule permitting a grounded negative conclusion when something is
+     absent from a list the evidence presents as *complete* (e.g. "nginx is
+     not among the 54 listed running services") — explicitly excluded for
+     any list the evidence itself marks truncated/capped, so this can't
+     become a license to guess about capped data (e.g. logs).
+  2. A rule preferring a fuller, itemized piece of evidence over a
+     single-value highlight of the same fact when both are present (fixes
+     "what is consuming memory?" only naming the single top process).
+  3. A rule for handling a question whose own premise the evidence doesn't
+     support (state the real evidence value first, before addressing the
+     rest of the question) — found via "what is the root cause of the high
+     disk usage?" when disk usage was actually 68%, below the 85% warning
+     threshold.
+  4. A clarification that "the logs"/"system logs"/"log entries" refers to
+     the evidence's own `recent_entries`, not live file access — the literal
+     fix for the one real FAIL found ("give me the system logs" refused
+     despite the data being present; confirmed via rephrasing tests that the
+     evidence was fine and only that exact phrase triggered refusal).
+- `src/nodeiq/collectors/network.py` — added `_firewall_failure_reason()`:
+  when all three firewall detection commands fail, captures the *actual*
+  `stderr`/`error` from the last attempt (`iptables`) as a factual
+  `detection_note` — never an inferred reason, literally the command's own
+  reported text — so "can you tell me anything about the firewall?" has
+  something concrete to explain the unknown status with, instead of only
+  being able to say it's unknown.
+- `src/nodeiq/summary.py` — `_summarize_network` surfaces the new
+  `detection_note` as `evidence["firewall_detection_note"]`.
+- Tests: `tests/collectors/test_network.py` (3 new `_firewall_failure_reason`
+  tests + 4 updated `firewall` dict assertions), `tests/test_summary.py` (1
+  new test), `tests/llm/test_prompt.py` (3 new guardrail substrings, 2
+  version-bump assertion updates).
+
+**New automated test suite** (`tests/test_questions.py`,
+`tests/expected_answers.json`, `tests/edge_cases.json`) — 26 tests: normal
+questions (mocked LLM, deterministic), missing/corrupted snapshot handling
+(including a real `nodeiq ask --snapshot <bad file>` CLI invocation asserting
+no traceback reaches the user), and prompt-injection/malicious-prompt
+structural guarantees (the system prompt is provably unaffected by question
+or evidence content, redaction still applies), plus 6 tests that make real
+OpenAI calls to pin the exact fixes above — skipped automatically without an
+`OPENAI_API_KEY`, matching this project's existing Linux-only integration
+test skip pattern.
+
+**Re-validated after fixes, against the real model, same real snapshot:**
+"give me the system logs" (FAIL → PASS), "is nginx running?" (WARNING →
+PASS), "is port 8080 open?" (WARNING → PASS), "what is consuming memory?"
+(WARNING → PASS), "what is the root cause of the high disk usage?" (WARNING
+→ improved but still open — now leads with the real 68% figure instead of a
+bare refusal, but doesn't yet explicitly name the 85% threshold). No
+regressions on 4 spot-checked previously-PASS questions (firewall, "was the
+server hacked?", cron-caused-error, prompt injection).
+
+**Final: 33 PASS, 3 WARNING (1 improved-but-open, 2 correct-but-enrichable —
+the firewall `detection_note` fix is implemented and unit-tested but not yet
+live-validated, since it requires a fresh VM scan with the updated collector
+code), 0 FAIL.** Full project suite: 587 passed, 10 skipped.

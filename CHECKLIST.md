@@ -12,8 +12,8 @@ stay listed (unchecked) until their phase is actually worked on.
 
 - **Current Phase:** Phase 9 — Release Readiness & Final Security Audit (complete). **NodeIQ v1 is release-ready.**
 - **Next Phase:** None required for v1 — the only remaining unchecked items are a genuinely open design question (Phase 2) and optional demo prep (Phase 8), neither a release blocker
-- **Overall Progress:** 204 / 206 tasks complete (~99%)
-- **Completed Tasks:** 202 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A, all of Phase 7B, all 7 of 7 in Phase 7C, 3 of 4 in Phase 8, all of Phase 9, all of Post-Release UX Fixes)
+- **Overall Progress:** 205 / 207 tasks complete (~99%)
+- **Completed Tasks:** 203 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A, all of Phase 7B, all 7 of 7 in Phase 7C, 3 of 4 in Phase 8, all of Phase 9, all of Post-Release UX Fixes, all of the 2026-07-16 QA Validation Cycle)
 - **Remaining Tasks:** 2 (1 in Phase 2 — dataclasses vs. TypedDict, a genuinely open design question; 1 in Phase 8 — demo prep, optional)
 
 > This summary must be updated by hand whenever tasks below are checked or
@@ -325,6 +325,18 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] `nodeiq ask` accepts an unquoted, multi-word question (`nargs="+"`, joined in `_cmd_ask`) — `nodeiq ask what failed` works the same as `nodeiq ask "what failed"`
 - [x] `nodeiq ask`/the interactive shell auto-scan on first use: `answer_question()` runs and saves a fresh scan automatically when no snapshot exists yet, instead of requiring a manual `nodeiq scan` first; an existing snapshot is still reused as-is, never re-scanned automatically
 - [x] Summary Engine evidence widened for all 8 non-system section summarizers: this is an internal tool consumed only by the project team (who already have direct access to every collector's raw output), so withholding structured, non-secret detail (process pid/owner/state, full disk/network/service/permission detail, cron/timer entries, log message content, firewall detection result) was overly cautious. The only fields still scrubbed are the two genuinely free-form, human-authored strings that could contain a real secret — `processes.command` and `scheduled_jobs`' cron `command` — both now passed through `redact_secrets()` (previously used only by `logs.py`) rather than withheld outright.
+
+## 2026-07-16 QA Validation Cycle
+
+- [x] Full QA validation cycle against a real, fresh Multipass VM snapshot and the real OpenAI model (36 questions, no mocking) — see `NODEIQ_QA_REPORT.md` for the complete question-by-question results
+- [x] Fixed a genuine failure ("give me the system logs" refusing despite the evidence being present) via a system prompt clarification, not a data change
+- [x] Fixed two ambiguity gaps (absence from a complete enumerated list wasn't being used as a groundable fact — "is nginx running?", "is port 8080 open?") via a new, narrowly-scoped system prompt rule
+- [x] Fixed an under-detailed answer ("what is consuming memory?") by adding a rule preferring itemized evidence over a single highlight when both are available
+- [x] Added a system prompt rule for questions with a false/unsupported premise (state the actual evidence first, before addressing the rest of the question)
+- [x] Added `network.py`'s `_firewall_failure_reason()` — a factual (never inferred) note explaining why firewall detection failed, surfaced as `evidence["firewall_detection_note"]`
+- [x] Re-validated all fixes against the real model on the same real snapshot: 0 regressions, all 4 fully-fixable issues confirmed fixed
+- [x] Added `tests/test_questions.py`, `tests/expected_answers.json`, `tests/edge_cases.json` — an automated QA regression suite (normal cases, missing/corrupted snapshots, prompt injection, 6 live-LLM regression tests gated on `OPENAI_API_KEY`)
+- [x] Bumped `_PROMPT_VERSION` to `"v2"` (system prompt wording changed in a way that affects model behavior)
 
 ---
 

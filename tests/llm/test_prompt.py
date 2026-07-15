@@ -107,7 +107,7 @@ def test_unsupported_evidence_kind_message_lists_supported_kinds():
 def test_supported_evidence_kind_is_accepted_explicitly():
     result = build_prompt("q", _fake_summary(), evidence_kind="summary")
 
-    assert result["prompt_version"] == "v1"
+    assert result["prompt_version"] == "v2"
 
 
 # --- Deterministic output --------------------------------------------------------
@@ -135,7 +135,7 @@ def test_deterministic_across_separate_fixture_instances():
 def test_prompt_version_is_present_and_stable():
     result = build_prompt("q", _fake_summary())
 
-    assert result["prompt_version"] == "v1"
+    assert result["prompt_version"] == "v2"
 
 
 def test_prompt_version_does_not_change_with_different_evidence():
@@ -230,6 +230,9 @@ def test_unicode_evidence_preserved_and_not_escaped():
         "Conflicting evidence",
         "Historical logs vs. current state",
         "Unsupported questions",
+        "Absence from a list the evidence presents as complete",
+        "false or unsupported premise",
+        "not live access to log files on disk",
     ],
 )
 def test_system_prompt_contains_guardrail(expected_substring):

@@ -930,6 +930,26 @@ def test_network_evidence_includes_firewall_result_even_when_undetected():
     assert result["evidence"]["firewall_enabled"] is None
 
 
+def test_network_evidence_includes_firewall_detection_note():
+    result = summary._summarize_network(
+        {
+            "interfaces": [{"name": "eth0", "state": "up"}],
+            "listening_ports": [],
+            "default_route": None,
+            "firewall": {
+                "tool": None,
+                "enabled": None,
+                "detection_note": "Could not run a firewall detection command: Permission denied",
+            },
+        },
+        [],
+    )
+    assert (
+        result["evidence"]["firewall_detection_note"]
+        == "Could not run a firewall detection command: Permission denied"
+    )
+
+
 def test_network_evidence_includes_interfaces_and_listening_ports():
     result = summary._summarize_network(
         {

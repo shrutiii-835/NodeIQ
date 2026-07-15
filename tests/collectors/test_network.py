@@ -250,7 +250,11 @@ def test_collect_merges_every_source_into_one_result(monkeypatch):
     assert len(result.data["interfaces"]) == 3
     assert result.data["default_route"] == {"gateway": "192.168.252.1", "interface": "enp0s1"}
     assert len(result.data["listening_ports"]) == 2
-    assert result.data["firewall"] == {"tool": None, "enabled": None}
+    assert result.data["firewall"] == {
+        "tool": None,
+        "enabled": None,
+        "detection_note": "Could not run a firewall detection command: command not found",
+    }
 
 
 def test_collect_reports_empty_interfaces_when_link_command_fails(monkeypatch):
@@ -302,7 +306,7 @@ def test_collect_detects_ufw_when_available(monkeypatch):
 
     result = network.collect(_context())
 
-    assert result.data["firewall"] == {"tool": "ufw", "enabled": True}
+    assert result.data["firewall"] == {"tool": "ufw", "enabled": True, "detection_note": None}
 
 
 def test_collect_detects_ufw_inactive(monkeypatch):
@@ -317,7 +321,7 @@ def test_collect_detects_ufw_inactive(monkeypatch):
 
     result = network.collect(_context())
 
-    assert result.data["firewall"] == {"tool": "ufw", "enabled": False}
+    assert result.data["firewall"] == {"tool": "ufw", "enabled": False, "detection_note": None}
 
 
 def test_collect_falls_back_to_nft_when_ufw_is_unavailable(monkeypatch):
@@ -333,4 +337,50 @@ def test_collect_falls_back_to_nft_when_ufw_is_unavailable(monkeypatch):
 
     result = network.collect(_context())
 
-    assert result.data["firewall"] == {"tool": "nft", "enabled": True}
+    assert result.data["firewall"] == {"tool": "nft", "enabled": True, "detection_note": None}
+
+
+def test_firewall_failure_reason_uses_result_error_when_present():
+    result = CommandResult(
+        command=network._IPTABLES_LIST_COMMAND,
+        returncode=1,
+        stdout="",
+        stderr="",
+        duration_seconds=0.01,
+        timed_out=False,
+        error="Permission denied",
+    )
+    assert network._firewall_failure_reason(result) == (
+        "Could not run a firewall detection command: Permission denied"
+    )
+
+
+def test_firewall_failure_reason_falls_back_to_stderr():
+    result = CommandResult(
+        command=network._IPTABLES_LIST_COMMAND,
+        returncode=1,
+        stdout="",
+        stderr="iptables: Permission denied (you must be root)\n",
+        duration_seconds=0.01,
+        timed_out=False,
+        error=None,
+    )
+    assert network._firewall_failure_reason(result) == (
+        "Could not run a firewall detection command: "
+        "iptables: Permission denied (you must be root)"
+    )
+
+
+def test_firewall_failure_reason_generic_fallback_when_nothing_reported():
+    result = CommandResult(
+        command=network._IPTABLES_LIST_COMMAND,
+        returncode=1,
+        stdout="",
+        stderr="",
+        duration_seconds=0.01,
+        timed_out=False,
+        error=None,
+    )
+    assert network._firewall_failure_reason(result) == (
+        "No firewall detection tool (ufw, nft, or iptables) could be run on this scan."
+    )

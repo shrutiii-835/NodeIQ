@@ -2488,3 +2488,135 @@ justified for one class.
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-15 — Phase 4.1A: Summary Engine Design
+
+**Task**
+
+Design-only phase, explicitly not implementation: with the data
+collection layer complete (9 collectors) and snapshots now persistable
+(Phase 3.8), design the layer that will transform a raw snapshot into a
+concise, structured Summary for every future downstream consumer — CLI
+reports, OpenAI prompts, a future web UI, future exports — without each
+one duplicating its own noise-reduction logic. No
+`src/nodeiq/summary.py` (or equivalent) was written; no existing code
+was touched.
+
+**Files created**
+
+- `docs/summary_engine_design.md` — answers to all seven assigned design
+  questions (input shape, output shape, dict vs. dataclass vs.
+  TypedDict, section representation, what belongs in a summary vs. what
+  stays raw-snapshot-only, and how to support CLI/OpenAI/web UI
+  consumers without duplication); an architecture diagram showing where
+  the Summary Engine sits between `run_scan()`/snapshot persistence and
+  every downstream consumer; a concrete application of the Report
+  Philosophy (drawing an explicit, defensible line between deterministic
+  templated headlines and forbidden interpretation, and between
+  fixed-threshold "concerns" and forbidden diagnosis/recommendations); an
+  illustrative Summary object shape grounded in the 9 collectors' real
+  current fields; a section lifecycle diagram directly mirroring
+  `docs/collector_guidelines.md`'s "Standard Lifecycle"; a module and
+  naming proposal (one new `summary.py` module for v1, not a package);
+  a trade-offs section; a future-extensibility section; and five
+  explicitly recorded open questions.
+
+**Files modified**
+
+- `CHECKLIST.md` — added a new "Phase 4.1A — Summary Engine Design"
+  section under Phase 4 (all 5 tasks checked); Progress Summary updated
+  to 114/137 (~83%).
+
+**Reasoning**
+
+The central design decision — one summarizer function per snapshot
+section, orchestrated by one engine function that never lets a single
+section's summarizer crash the whole Summary — is not a new idea being
+introduced. It's the collector/coordinator architecture (validated
+structurally and through three full implementation sprints across 9
+real collectors) applied a second time, one layer higher in the
+pipeline. This was treated as the strongest possible design choice
+specifically *because* it reuses a proven pattern rather than inventing
+an unproven one — the same reasoning this project has applied
+consistently since Phase 3.2A's original collector contract design.
+
+A genuinely new observation (not available before all 9 collectors
+existed): reviewing their actual current output shows most of the
+"reduce noise" work described in this task's Report Philosophy is
+*already done* at the collector layer — `processes.py` already returns
+only a top-10 list, `logs.py` already caps at 100 entries, `disk.py`
+already computes `highest_disk_usage_percent` rather than a full
+per-filesystem dump for the caller to reduce. This reframes the Summary
+Engine's actual job: less "compress a firehose," more "select, add a
+thin deterministic framing layer, and — critically — never silently
+drop evidence of a section that failed to collect," directly serving
+`CONTEXT.md` Section 4's requirement that missing/failed evidence stay
+visible rather than being quietly absorbed.
+
+The most carefully-argued part of this design is the explicit line
+between what a deterministic Python layer may and may not say about
+data it didn't collect. `docs/collector_guidelines.md` already forbids
+collectors from doing "presentation work"; this design had to decide
+whether a Summary's "headline" string (e.g. `"3 services failed"`)
+crosses that same line. The resolution — mechanical, fixed-template
+fact statements are not interpretation; anything stating a cause or
+suggesting an action is — is offered as a genuine, reasoned position,
+not a hedge, while the adjacent, harder question (whether
+fixed-threshold "concern" flagging belongs in this layer at all, versus
+being deferred entirely to Phase 6) is recorded as the least-settled
+open question in the document rather than resolved by assertion.
+
+**Important implementation notes**
+
+- **Quality review caught and rejected a speculative abstraction before
+  it was ever proposed as settled:** a `SummaryContext` object,
+  mirroring `CollectorContext`, was considered for symmetry's sake and
+  explicitly rejected in the document itself — unlike `CollectorContext`
+  (justified by two concrete, current needs per `DECISIONS.md` ADR-014),
+  no shared parameter every summarizer function actually needs has been
+  identified yet. This is recorded in the design doc's own "Quality
+  Review" section (Section 18) as a demonstration that the review was
+  actually applied, not just stated, mirroring how Phase 3.7's own
+  quality review caught and removed a speculative `severity` parameter
+  from `error_entry` before committing.
+- This design deliberately does **not** resolve `CHECKLIST.md`'s
+  long-open Phase 2 item ("decide on schema representation in code:
+  dataclasses vs. TypedDict") — Section 16 of the new doc explicitly
+  distinguishes that still-open question (how snapshot *sections*
+  should be represented) from this document's narrower, now-answered
+  question (how a *derived Summary* should be represented: plain dict).
+  Recorded explicitly rather than silently conflating the two or
+  silently deciding the older question as an unintended side effect.
+- No code was written, per this phase's explicit "do not implement"
+  scope — the full test suite was run only to confirm this
+  documentation-only phase left the existing 217-test suite (verified
+  on the Multipass VM as of Phase 3.8) genuinely untouched.
+- Swept the new document's headings (`grep -n '^#'`) to confirm
+  sequential, non-duplicated numbering before finishing.
+
+**Future TODOs**
+
+- **Phase 4.1B (implementation)** should build `src/nodeiq/summary.py`
+  from this design: one `_summarize_<section>` function per snapshot
+  section, one `_REGISTERED_SUMMARIZERS` list, one public
+  `summarize_snapshot()` entry point — mirroring
+  `nodeiq.core.coordinator`'s own structure closely enough that its
+  existing tests can serve as a template for the new ones.
+- Five open questions recorded in `docs/summary_engine_design.md`
+  Section 17 need resolving before or during that implementation phase,
+  most importantly: whether fixed-threshold "concerns" belong in this
+  layer at all, and whether Phase 6's `ask` should consume the Summary
+  alone, the raw snapshot alone, or both depending on the question asked.
+- Still open from prior entries: field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

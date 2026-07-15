@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 3.8 — Snapshot Persistence (complete)
-- **Next Phase:** Phase 4 — Report Generation
-- **Overall Progress:** 109 / 132 tasks complete (~83%)
-- **Completed Tasks:** 109 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8)
-- **Remaining Tasks:** 23 (1 in Phase 2, all of Phases 4–8)
+- **Current Phase:** Phase 4.1A — Summary Engine Design (design only, complete)
+- **Next Phase:** Phase 4.1B — Summary Engine Implementation
+- **Overall Progress:** 114 / 137 tasks complete (~83%)
+- **Completed Tasks:** 114 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A)
+- **Remaining Tasks:** 23 (1 in Phase 2, rest of Phase 4, all of Phases 5–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -176,6 +176,14 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Document snapshot persistence (`docs/snapshot_persistence.md`)
 
 ## Phase 4 — Report Generation
+
+### Phase 4.1A — Summary Engine Design (design only, no code)
+
+- [x] Document architecture: where the Summary Engine fits between raw snapshots and every downstream consumer (`docs/summary_engine_design.md`)
+- [x] Answer all 7 design questions (input, output shape, dict/dataclass/TypedDict, section representation, what belongs in summaries, what stays raw-only, supporting CLI/OpenAI/web UI without duplication)
+- [x] Apply the Report Philosophy concretely: draw the line between deterministic templated headlines and interpretation; between fixed-threshold concerns and diagnosis/recommendations
+- [x] Propose an illustrative Summary object shape, a section lifecycle mirroring the collector lifecycle, and a module/naming proposal (single `summary.py` for v1, package split deferred)
+- [x] Quality review: reject a speculative `SummaryContext` object; record five genuine open questions rather than guessing
 
 - [ ] Design human-readable report layout
 - [ ] Implement report generator (snapshot JSON → readable text)

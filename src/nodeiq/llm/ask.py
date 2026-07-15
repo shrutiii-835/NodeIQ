@@ -1,14 +1,15 @@
-"""Ask orchestration: the one place that composes an already-loaded
-snapshot, the Summary Engine, the Prompt Builder, and the OpenAI client
-into a single answer.
+"""Ask orchestration: the one place that composes an already-loaded (or
+freshly-collected) snapshot, the Summary Engine, the Prompt Builder,
+and the OpenAI client into a single answer.
 
 This is a pure composition layer, not a new architectural piece —
-every function it calls (`load_snapshot`/`load_latest_snapshot`,
-`summarize_snapshot`, `build_prompt`, `ask_openai`) already existed and
-is unchanged by this module. `nodeiq.cli.main._cmd_ask` calls
-`answer_question()` instead of orchestrating these four calls itself,
-so the CLI stays a thin dispatcher and this one function is the single
-place the full "question -> answer" pipeline is assembled.
+every function it calls (`run_scan`, `save_snapshot`,
+`load_snapshot`/`load_latest_snapshot`, `summarize_snapshot`,
+`build_prompt`, `ask_openai`) already existed and is unchanged by this
+module. `nodeiq.cli.main._cmd_ask` calls `answer_question()` instead of
+orchestrating these calls itself, so the CLI stays a thin dispatcher
+and this one function is the single place the full
+"question -> answer" pipeline is assembled.
 
 Typical usage (this is exactly what `nodeiq ask` does):
 
@@ -20,7 +21,9 @@ Typical usage (this is exactly what `nodeiq ask` does):
 
 from pathlib import Path
 
-from nodeiq.core.snapshot import load_latest_snapshot, load_snapshot
+from nodeiq.core.coordinator import run_scan
+from nodeiq.core.exceptions import SnapshotError
+from nodeiq.core.snapshot import load_latest_snapshot, load_snapshot, save_snapshot
 from nodeiq.llm.client import ask_openai
 from nodeiq.llm.prompt import build_prompt
 from nodeiq.summary import summarize_snapshot
@@ -29,10 +32,21 @@ from nodeiq.summary import summarize_snapshot
 def answer_question(question: str, snapshot_path: Path | str | None = None) -> dict:
     """Answer one natural-language question about the machine.
 
-    Pipeline: load a snapshot (`snapshot_path` if given, otherwise the
-    latest one already saved under `snapshots/`) -> summarize it ->
-    build a prompt from `question` and that Summary -> send it to
-    OpenAI -> return `{"answer": <str>, "snapshot_metadata": <dict>}`.
+    Pipeline: resolve a snapshot -> summarize it -> build a prompt from
+    `question` and that Summary -> send it to OpenAI -> return
+    `{"answer": <str>, "snapshot_metadata": <dict>}`.
+
+    Resolving a snapshot: if `snapshot_path` is given, that exact file
+    is loaded (a missing/malformed file at that path is a real error,
+    not something to paper over). Otherwise, the latest snapshot
+    already saved under `snapshots/` is used — and if none exists yet
+    (a brand-new install, or a user asking a question before ever
+    running `scan`), a fresh scan is run and saved automatically first,
+    so asking a question never requires a separate manual `nodeiq scan`
+    step first. A snapshot that already exists is reused as-is (never
+    silently re-scanned), so a rapid back-and-forth session — the
+    interactive shell asking several questions in a row — only pays the
+    cost of a scan once.
 
     `answer` is the answer text exactly as `ask_openai()` returned it,
     unchanged. `snapshot_metadata` is the snapshot's own `metadata`
@@ -44,14 +58,24 @@ def answer_question(question: str, snapshot_path: Path | str | None = None) -> d
 
     Raises whatever the functions it calls already raise —
     `nodeiq.core.exceptions.SnapshotError` for a missing/malformed
-    snapshot, or one of `nodeiq.llm.exceptions`' `LLMError` subclasses
-    for anything that goes wrong talking to OpenAI. This function adds
-    no error handling of its own; translating an exception into a
-    clean, user-facing message and an exit code is the CLI's job
-    (`nodeiq.cli.main._cmd_ask`), exactly like it already is for
-    `report`'s own `SnapshotError` handling.
+    snapshot at an explicit `snapshot_path`, or one of
+    `nodeiq.llm.exceptions`' `LLMError` subclasses for anything that
+    goes wrong talking to OpenAI. This function adds no error handling
+    of its own beyond the auto-scan fallback described above;
+    translating any other exception into a clean, user-facing message
+    and an exit code is the CLI's job (`nodeiq.cli.main._cmd_ask`),
+    exactly like it already is for `report`'s own `SnapshotError`
+    handling.
     """
-    snapshot = load_snapshot(snapshot_path) if snapshot_path else load_latest_snapshot()
+    if snapshot_path:
+        snapshot = load_snapshot(snapshot_path)
+    else:
+        try:
+            snapshot = load_latest_snapshot()
+        except SnapshotError:
+            snapshot = run_scan()
+            save_snapshot(snapshot)
+
     summary = summarize_snapshot(snapshot)
     prompt = build_prompt(question, summary)
     answer = ask_openai(prompt)

@@ -84,14 +84,19 @@ def test_report_snapshot_and_fresh_are_mutually_exclusive(capsys):
 def test_parses_ask_with_question():
     args = cli_main.build_parser().parse_args(["ask", "what failed?"])
     assert args.command == "ask"
-    assert args.question == "what failed?"
+    assert args.question == ["what failed?"]
     assert args.snapshot is None
+
+
+def test_parses_ask_with_unquoted_multiword_question():
+    args = cli_main.build_parser().parse_args(["ask", "what", "service", "failed"])
+    assert args.question == ["what", "service", "failed"]
 
 
 def test_parses_ask_with_snapshot_flag():
     args = cli_main.build_parser().parse_args(["ask", "--snapshot", "some/path.json", "q"])
     assert args.snapshot == "some/path.json"
-    assert args.question == "q"
+    assert args.question == ["q"]
 
 
 def test_ask_without_a_question_is_an_invalid_argument():
@@ -372,6 +377,21 @@ def test_ask_command_passes_question_and_snapshot_path_through(monkeypatch):
     cli_main._cmd_ask(args)
 
     assert seen == {"question": "q?", "snapshot_path": "some/path.json"}
+
+
+def test_ask_command_joins_an_unquoted_multiword_question(monkeypatch):
+    seen = {}
+
+    def _fake_answer_question(question, snapshot_path=None):
+        seen["question"] = question
+        return {"answer": "ok", "snapshot_metadata": {}}
+
+    monkeypatch.setattr(cli_main, "answer_question", _fake_answer_question)
+    args = cli_main.build_parser().parse_args(["ask", "what", "service", "failed"])
+
+    cli_main._cmd_ask(args)
+
+    assert seen["question"] == "what service failed"
 
 
 def test_ask_command_shows_freshness_warning_for_a_stale_snapshot(monkeypatch, capsys):

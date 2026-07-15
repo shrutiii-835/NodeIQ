@@ -4207,3 +4207,41 @@ history, logs, snapshots, summaries, reports, or prompts; every error
 path produces a clean, actionable message; the architecture is
 unchanged from Phase 6D except for one small, explicitly-scoped
 redaction integration.
+
+---
+
+## 2026-07-16 — UX fix: unquoted `ask` questions + auto-scan on first use
+
+**Task:** two user-requested UX fixes to `ask` — (1) questions no
+longer need shell quoting, (2) asking a question with no snapshot yet
+scans automatically instead of erroring out.
+
+**Files modified:**
+- `src/nodeiq/cli/main.py` — `ask`'s `question` argument is now
+  `nargs="+"` (one or more words), joined with spaces in `_cmd_ask`
+  before being passed on; `nodeiq ask what failed` and
+  `nodeiq ask "what failed"` are now equivalent. Help epilog updated.
+- `src/nodeiq/llm/ask.py` — `answer_question()`, when no explicit
+  `snapshot_path` is given and `load_latest_snapshot()` finds nothing,
+  now runs `run_scan()` + `save_snapshot()` automatically instead of
+  letting `SnapshotError` propagate. An existing snapshot is still
+  reused as-is (never re-scanned automatically) — this only removes
+  the *first-ever* manual `nodeiq scan` step, so a rapid back-and-forth
+  session (the interactive shell asking several questions) still only
+  pays the scan cost once. An explicit `--snapshot PATH` still raises
+  `SnapshotError` normally if that file is missing/malformed — auto-scan
+  only applies to the "no snapshot at all yet" default-path case.
+- `README.md` — examples updated; `tests/llm/test_ask.py` and
+  `tests/cli/test_main.py` updated/extended for both changes (new
+  auto-scan tests, `nargs="+"` parsing tests, a CLI-level
+  multi-word-join test).
+
+**Verified manually** (real OpenAI call, real local `.env`) in an
+empty scratch directory with no `snapshots/` at all:
+`python -m nodeiq ask what operating system is this machine running`
+(no quotes) correctly triggered a scan, saved a snapshot, and answered
+— confirmed via the new snapshot file appearing. A second, different
+question in the same directory afterward reused that same snapshot
+file (no new one created).
+
+Full suite: 502 passed, 10 skipped.

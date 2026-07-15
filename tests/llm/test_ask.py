@@ -26,13 +26,28 @@ _FAKE_SNAPSHOT = {
 }
 
 
-def _install(monkeypatch, *, snapshot=None, snapshot_error=None, prompt_seen=None, answer="the answer"):
-    """Wire up fake load_latest_snapshot/load_snapshot, real
-    summarize_snapshot (unmocked — it's pure and already tested),
-    a build_prompt spy, and a fake ask_openai. Returns a dict of call
-    records the test can inspect.
+def _install(
+    monkeypatch,
+    *,
+    snapshot=None,
+    snapshot_error=None,
+    prompt_seen=None,
+    answer="the answer",
+    scanned_snapshot=None,
+):
+    """Wire up fake load_latest_snapshot/load_snapshot/run_scan/
+    save_snapshot, real summarize_snapshot (unmocked — it's pure and
+    already tested), a build_prompt spy, and a fake ask_openai. Returns
+    a dict of call records the test can inspect.
     """
-    calls = {"load_latest": 0, "load_path": None, "prompt_args": None, "openai_prompt": None}
+    calls = {
+        "load_latest": 0,
+        "load_path": None,
+        "run_scan": 0,
+        "save_snapshot": None,
+        "prompt_args": None,
+        "openai_prompt": None,
+    }
 
     def _load_latest():
         calls["load_latest"] += 1
@@ -46,6 +61,14 @@ def _install(monkeypatch, *, snapshot=None, snapshot_error=None, prompt_seen=Non
             raise snapshot_error
         return snapshot if snapshot is not None else _FAKE_SNAPSHOT
 
+    def _run_scan():
+        calls["run_scan"] += 1
+        return scanned_snapshot if scanned_snapshot is not None else _FAKE_SNAPSHOT
+
+    def _save_snapshot(snap):
+        calls["save_snapshot"] = snap
+        return "snapshots/fresh.json"
+
     real_build_prompt = ask_module.build_prompt
 
     def _build_prompt(question, evidence, **kwargs):
@@ -58,6 +81,8 @@ def _install(monkeypatch, *, snapshot=None, snapshot_error=None, prompt_seen=Non
 
     monkeypatch.setattr(ask_module, "load_latest_snapshot", _load_latest)
     monkeypatch.setattr(ask_module, "load_snapshot", _load)
+    monkeypatch.setattr(ask_module, "run_scan", _run_scan)
+    monkeypatch.setattr(ask_module, "save_snapshot", _save_snapshot)
     monkeypatch.setattr(ask_module, "build_prompt", _build_prompt)
     monkeypatch.setattr(ask_module, "ask_openai", _ask_openai)
     return calls
@@ -106,14 +131,49 @@ def test_explicit_snapshot_path_is_used_instead_of_latest(monkeypatch):
     assert calls["load_latest"] == 0
 
 
-# --- Missing snapshot --------------------------------------------------------------------
+# --- Auto-scan when no snapshot exists yet (no manual `nodeiq scan` required) -----------
 
 
-def test_missing_snapshot_propagates_snapshot_error(monkeypatch):
-    _install(monkeypatch, snapshot_error=SnapshotError("no snapshot files found in snapshots"))
+def test_missing_snapshot_triggers_an_automatic_scan(monkeypatch):
+    calls = _install(monkeypatch, snapshot_error=SnapshotError("no snapshot files found in snapshots"))
 
-    with pytest.raises(SnapshotError, match="no snapshot files found"):
-        ask_module.answer_question("What OS is this?")
+    result = ask_module.answer_question("What OS is this?")
+
+    assert calls["run_scan"] == 1
+    assert calls["save_snapshot"] is not None
+    assert result["answer"] == "the answer"
+
+
+def test_auto_scanned_snapshot_is_saved_before_answering(monkeypatch):
+    calls = _install(
+        monkeypatch,
+        snapshot_error=SnapshotError("no snapshot files found in snapshots"),
+        scanned_snapshot={"metadata": {"scan_timestamp": "2026-07-16T10:00:00+00:00"}},
+    )
+
+    result = ask_module.answer_question("What OS is this?")
+
+    assert calls["save_snapshot"] == {"metadata": {"scan_timestamp": "2026-07-16T10:00:00+00:00"}}
+    assert result["snapshot_metadata"] == {"scan_timestamp": "2026-07-16T10:00:00+00:00"}
+
+
+def test_existing_snapshot_is_reused_without_scanning(monkeypatch):
+    calls = _install(monkeypatch)
+
+    ask_module.answer_question("What OS is this?")
+
+    assert calls["load_latest"] == 1
+    assert calls["run_scan"] == 0
+    assert calls["save_snapshot"] is None
+
+
+def test_explicit_snapshot_path_never_triggers_an_automatic_scan(monkeypatch):
+    calls = _install(monkeypatch, snapshot_error=SnapshotError("no snapshot files found in snapshots"))
+
+    with pytest.raises(SnapshotError):
+        ask_module.answer_question("What OS is this?", snapshot_path="bad.json")
+
+    assert calls["run_scan"] == 0
 
 
 # --- Malformed snapshot --------------------------------------------------------------------

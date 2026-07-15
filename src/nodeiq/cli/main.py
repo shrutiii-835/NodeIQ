@@ -46,7 +46,8 @@ examples:
   nodeiq scan                         collect a fresh snapshot
   nodeiq report                       show a report for the latest snapshot
   nodeiq report --section disk        show only the disk section
-  nodeiq ask "What service failed?"    ask a question about the machine
+  nodeiq ask what service failed      ask a question -- no quotes needed
+                                       (auto-scans first if no snapshot exists yet)
 """
 
 # --- Exit codes (docs/cli_design.md Section 5, "Exit Code Summary") -------------
@@ -94,7 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
     ask_parser = subparsers.add_parser(
         "ask", help="Ask a natural-language question about the machine."
     )
-    ask_parser.add_argument("question", help="The question to ask.")
+    ask_parser.add_argument(
+        "question",
+        nargs="+",
+        help="The question to ask — no quotes needed (e.g. nodeiq ask what failed).",
+    )
     ask_parser.add_argument(
         "--snapshot", help="Answer using this snapshot file instead of the latest."
     )
@@ -182,14 +187,20 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_ask(args: argparse.Namespace) -> int:
-    """`nodeiq ask`: load a snapshot (default: latest; `--snapshot PATH`:
-    a specific file), summarize it, build a prompt, and answer via
-    OpenAI — the entire pipeline is one call to
-    `nodeiq.llm.ask.answer_question()`. See docs/cli_design.md Section
-    4.3 and docs/prompt_builder_design.md.
+    """`nodeiq ask`: load a snapshot (default: latest, auto-scanning
+    first if none exists yet; `--snapshot PATH`: a specific file),
+    summarize it, build a prompt, and answer via OpenAI — the entire
+    pipeline is one call to `nodeiq.llm.ask.answer_question()`. See
+    docs/cli_design.md Section 4.3 and docs/prompt_builder_design.md.
+
+    `question` is `nargs="+"` (one or more words) so a question reads
+    naturally without shell quoting — `nodeiq ask what failed` and
+    `nodeiq ask "what failed"` both work identically.
     """
+    question = " ".join(args.question)
+
     try:
-        result = answer_question(args.question, snapshot_path=args.snapshot)
+        result = answer_question(question, snapshot_path=args.snapshot)
     except SnapshotError as exc:
         print(format_ask_error(exc), file=sys.stderr)
         return EXIT_NO_SNAPSHOT
@@ -203,7 +214,7 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     freshness_warning = check_snapshot_freshness(result["snapshot_metadata"])
     if freshness_warning:
         print(freshness_warning, file=sys.stderr)
-    print(render_qa(args.question, result["answer"]))
+    print(render_qa(question, result["answer"]))
     return EXIT_OK
 
 

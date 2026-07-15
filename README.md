@@ -107,8 +107,13 @@ ask     → load a snapshot, send it + a question to the LLM, get an answer
 - `nodeiq report` — print a human-readable summary of the latest snapshot
   (`--section NAME` to see just one section, `--snapshot PATH` for a
   specific file, `--fresh` to scan first)
-- `nodeiq ask "<question>"` — ask a natural-language question, answered
-  strictly from evidence in the snapshot
+- `nodeiq ask <question>` — ask a natural-language question, no quotes
+  needed (`nodeiq ask what service failed` works just as well as
+  `nodeiq ask "what service failed"`), answered strictly from evidence
+  in the snapshot. If no snapshot exists yet, `ask` scans automatically
+  first — no need to run `nodeiq scan` manually before asking. An
+  already-existing snapshot is reused as-is (never re-scanned
+  automatically), so a run of follow-up questions stays fast.
 - `nodeiq` (no command) — enter an interactive shell: type questions
   directly at the `NodeIQ>` prompt instead of repeating `nodeiq ask` each
   time (`help`, `clear`, `exit`/`quit`). On startup, detects the platform;
@@ -268,7 +273,8 @@ nodeiq --version
 nodeiq scan
 nodeiq report
 
-# Ask a question, or just run `nodeiq` with no command for the shell
-nodeiq ask "What service failed?"
+# Ask a question (no quotes needed, auto-scans if no snapshot exists yet),
+# or just run `nodeiq` with no command for the shell
+nodeiq ask what service failed
 nodeiq
 ```

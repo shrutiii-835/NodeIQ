@@ -12,7 +12,7 @@ stay listed (unchecked) until their phase is actually worked on.
 
 - **Current Phase:** Phase 9 — Release Readiness & Final Security Audit (complete). **NodeIQ v1 is release-ready.**
 - **Next Phase:** None required for v1 — the only remaining unchecked items are a genuinely open design question (Phase 2) and optional demo prep (Phase 8), neither a release blocker
-- **Overall Progress:** 201 / 203 tasks complete (~99%)
+- **Overall Progress:** 203 / 205 tasks complete (~99%)
 - **Completed Tasks:** 201 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A, all of Phase 7B, all 7 of 7 in Phase 7C, 3 of 4 in Phase 8, all of Phase 9)
 - **Remaining Tasks:** 2 (1 in Phase 2 — dataclasses vs. TypedDict, a genuinely open design question; 1 in Phase 8 — demo prep, optional)
 
@@ -319,6 +319,11 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Final UX review: `--help`, `--version`, every command's error output, and the unsupported-platform message all reviewed together — no raw tracebacks, no SDK/implementation detail leaked anywhere
 - [x] Release documentation refreshed: `README.md` (supported platforms, Ubuntu validation, security practices, known limitations), `CHECKLIST.md`, `ROADMAP.md` (known gaps updated — redaction gap closed, firewall/permission gaps confirmed-in-practice), `LOGS.md`
 - [x] Final quality review: CLI still thin; collectors/coordinator/Prompt Builder unchanged except `logs.py` (the one explicitly-requested redaction integration); OpenAI client remains isolated; full suite passing locally (507) and on the VM (507)
+
+## Post-Release UX Fixes
+
+- [x] `nodeiq ask` accepts an unquoted, multi-word question (`nargs="+"`, joined in `_cmd_ask`) — `nodeiq ask what failed` works the same as `nodeiq ask "what failed"`
+- [x] `nodeiq ask`/the interactive shell auto-scan on first use: `answer_question()` runs and saves a fresh scan automatically when no snapshot exists yet, instead of requiring a manual `nodeiq scan` first; an existing snapshot is still reused as-is, never re-scanned automatically
 
 ---
 

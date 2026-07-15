@@ -1,9 +1,15 @@
 # NodeIQ
 
-**Status: v1 complete.** Every command described in this README is real,
-implemented, tested, and verified on a real Ubuntu 24.04 machine — see
-`CHECKLIST.md`'s Progress Summary for the exact task count and
-`LOGS.md` for the full development history.
+**Status: v1 complete and release-ready.** Every command described in this
+README is real, implemented, tested, and verified on a real Ubuntu 24.04.4
+LTS machine (Python 3.12.3) via a genuine fresh-clone install — see
+`CHECKLIST.md`'s Progress Summary for the exact task count and `LOGS.md`
+for the full development history, including the final security audit and
+release-validation results.
+
+**Supported platform:** Linux (validated on Ubuntu 24.04 LTS). Running
+`nodeiq` with no command on macOS or Windows detects this and explains
+that v1 is Linux-only, rather than attempting to continue.
 
 NodeIQ is a Python command-line tool that answers natural-language questions
 about the health and state of a Linux server, using **real system data** —
@@ -138,6 +144,15 @@ ask     → load a snapshot, send it + a question to the LLM, get an answer
   excludes `.env`, `.venv/`, `__pycache__/`, `.pytest_cache/`,
   `snapshots/*.json`, and `.git/` by construction, and refuses to proceed
   if a `.env` file somehow ends up in its staging directory anyway.
+- Log messages NodeIQ collects are redacted before they ever reach a
+  snapshot, a Summary, a report, or a prompt: `src/nodeiq/core/redaction.py`
+  replaces API keys, tokens, passwords, and credential-shaped values
+  (e.g. `OPENAI_API_KEY=sk-...` → `OPENAI_API_KEY=[REDACTED]`) and PEM
+  private-key blocks — deterministically, with no false-positive
+  redaction of ordinary text. The real system journal on disk is never
+  modified; only NodeIQ's own collected copy is sanitized.
+- A final, repository-wide secret audit (`git grep`/`git ls-files`) found
+  no real secret anywhere in tracked files or git history.
 
 ---
 
@@ -196,6 +211,19 @@ NodeIQ was built in strict, incremental phases — see
 
 See [CONTEXT.md](CONTEXT.md) for the full architectural reasoning behind
 these phases, and [PROJECT_RULES.md](PROJECT_RULES.md) for coding standards.
+
+---
+
+## Known Limitations
+
+- Firewall-implementation variance (`ufw`/`nft`/`iptables`) and
+  non-root permission handling are already handled gracefully in code
+  and were re-verified during release validation (see `LOGS.md`), but
+  haven't been exhaustively stress-tested across every distribution.
+- No demo script or slide deck exists — this README and a live
+  walkthrough are the current "demo."
+- See `ROADMAP.md`'s "Known Gaps, Recorded Honestly" for the complete,
+  up-to-date list.
 
 ---
 

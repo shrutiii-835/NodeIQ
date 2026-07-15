@@ -6,13 +6,17 @@ each milestone is ordered this way, see [CONTEXT.md](CONTEXT.md) Section 8.
 
 ---
 
-## Status: v1 Complete
+## Status: v1 Complete and Release-Ready
 
 Every milestone below is done, tested, and verified on a real Ubuntu 24.04
-machine (a Multipass VM, plus a genuine fresh-install/`git clone` simulation
-and five hands-on scenario validations — see `LOGS.md`'s Phase 8 entry for
-the full record). NodeIQ's three commands (`scan`, `report`, `ask`) and its
-interactive shell are all real, working software, not a plan.
+machine (a Multipass VM, plus two independent fresh-install/`git clone`
+simulations — Phase 8 and Phase 9 — and five hands-on scenario validations;
+see `LOGS.md`'s Phase 8 and Phase 9 entries for the full record). NodeIQ's
+three commands (`scan`, `report`, `ask`) and its interactive shell are all
+real, working software, not a plan. Phase 9 added a final security audit
+(secret redaction for collected log messages, a full repository secret
+sweep, and confirmed-in-practice firewall/permission-error handling) with
+nothing left that blocks a release.
 
 A small number of items remain deliberately unchecked in `CHECKLIST.md`
 rather than silently marked done — see "Known Gaps, Recorded Honestly"
@@ -94,17 +98,18 @@ an accurate picture, not a guess.
 Per this project's own practice of writing down a real limitation rather
 than silently overstating completeness:
 
-- **Secret redaction for log/config content is not implemented.**
-  `CONTEXT.md` Section 4 calls for it explicitly; the `logs` collector
-  currently captures raw `journalctl` message text unredacted. This is
-  the single most important remaining hardening item for a future
-  session.
+- ~~Secret redaction for log/config content~~ — **fixed in Phase 9**:
+  `nodeiq.core.redaction.redact_secrets()` sanitizes API keys, tokens,
+  passwords, credentials, and PEM private-key blocks in every collected
+  log message before it can reach a snapshot, Summary, report, or prompt.
 - **Firewall-implementation variance** (`iptables`/`nftables`/`ufw`) and
-  **non-root permission-error handling** are both already handled
-  gracefully by existing code (best-effort detection; collectors that
-  never raise on a permission error), but neither has been explicitly
-  stress-tested under those exact conditions — recorded as unverified,
-  not as broken.
+  **non-root permission/root-required handling** were both explicitly
+  verified during Phase 9's release validation on a real Multipass
+  Ubuntu VM with all three firewall tools installed: run as an
+  unprivileged user, all three commands fail with a permission error,
+  and `network.py`'s `_detect_firewall()` degrades to
+  `{"tool": None, "enabled": None}` rather than crashing — confirmed,
+  not just assumed.
 - **No demo script or slide deck exists.** Arguably out of scope for this
   project's own goals, but left unchecked rather than assumed done.
 

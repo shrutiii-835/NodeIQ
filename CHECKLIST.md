@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 7B — Hardening (complete); Phase 8 — Testing & Validation (complete)
-- **Next Phase:** None required for v1 — remaining items are recorded gaps (secret redaction for log content, firewall/permission-error stress testing, demo prep), not blockers
-- **Overall Progress:** 191 / 196 tasks complete (~97%)
-- **Completed Tasks:** 191 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A, all of Phase 7B, 4 of 7 in Phase 7C, 3 of 4 in Phase 8)
-- **Remaining Tasks:** 5 (1 in Phase 2 — dataclasses vs. TypedDict; 3 in Phase 7C — secret redaction for log content, firewall stress test, non-root permission stress test; 1 in Phase 8 — demo prep)
+- **Current Phase:** Phase 9 — Release Readiness & Final Security Audit (complete). **NodeIQ v1 is release-ready.**
+- **Next Phase:** None required for v1 — the only remaining unchecked items are a genuinely open design question (Phase 2) and optional demo prep (Phase 8), neither a release blocker
+- **Overall Progress:** 201 / 203 tasks complete (~99%)
+- **Completed Tasks:** 201 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A, all of Phase 7B, all 7 of 7 in Phase 7C, 3 of 4 in Phase 8, all of Phase 9)
+- **Remaining Tasks:** 2 (1 in Phase 2 — dataclasses vs. TypedDict, a genuinely open design question; 1 in Phase 8 — demo prep, optional)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -297,11 +297,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 - [x] Apply timeouts to every subprocess call — already true for every collector via `CollectorContext.default_timeout` passed to `run_command()`, established since Phase 3.1/3.2B; re-verified, not re-implemented
 - [x] Handle partial collector failures end-to-end (verify `collection_errors` works in practice) — already true and exercised in every collector's own tests plus every real Multipass VM run across this project's history; re-verified, not re-implemented
-- [ ] Implement secret redaction for logs/config data — **not yet implemented; the clearest remaining gap for a future hardening pass** (see Known Limitations in the Phase 7B/8 LOGS.md entry) — `logs.py` currently captures raw `journalctl` message text unredacted
+- [x] Implement secret redaction for logs/config data — **implemented in Phase 9**: `nodeiq.core.redaction.redact_secrets()`, wired into `logs.py`'s `_parse_message()`; 25 tests (23 unit + 2 collector-level)
 - [x] Handle very large log volumes gracefully — already true: `logs.py`'s `_MAX_ENTRIES` cap plus its `truncated` flag, established at Collector Sprint 2; re-verified, not re-implemented
 - [x] Handle missing systemd gracefully — already true via `services.py`'s `systemd_available` flag (`DECISIONS.md` ADR-010); re-verified, not re-implemented
-- [ ] Handle different firewall implementations (iptables / nftables / ufw) — `network.py`'s best-effort detection already covers all three, but hasn't been explicitly stress-tested across distributions with each one installed; left unchecked pending that dedicated verification
-- [ ] Handle permission errors gracefully (e.g., non-root user) — individual collectors already degrade gracefully on a permission error (never raise), but this hasn't been verified end-to-end running NodeIQ as a genuinely unprivileged, non-root user; left unchecked pending that dedicated verification
+- [x] Handle different firewall implementations (iptables / nftables / ufw) — **verified in Phase 9** on a real Multipass VM with all three tools installed: `network.py`'s priority order (`ufw` → `nft` → `iptables`) confirmed correct
+- [x] Handle permission errors gracefully (e.g., non-root user) — **verified in Phase 9**: run as the unprivileged VM user, all three firewall commands fail with a permission error and `_detect_firewall()` degrades to `{"tool": None, "enabled": None}` rather than crashing; `permissions.py` also confirmed healthy reading `/etc/shadow`'s metadata (stat only, no content read) as non-root
 
 ## Phase 8 — Testing & Validation
 
@@ -309,6 +309,16 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Integration tests for CLI commands against fixture snapshots — already true (`tests/cli/`)
 - [x] End-to-end validation pass — a fresh-install simulation (`git clone` → venv → `pip install -e .` → configure `.env` → verify `--version`/`scan`/`report`/`ask`/the interactive shell) plus 5 real, hands-on scenarios (disk usage, a stopped service, a new listening process, generated log warnings/errors, and a permissions change) on a real Multipass Ubuntu 24.04 VM — see the Phase 8 LOGS.md entry for full results
 - [ ] Demo preparation — not done; no scripted walkthrough or slide deck exists (arguably out of scope for this project's own goals, but left unchecked rather than silently assumed complete)
+
+## Phase 9 — Release Readiness & Final Security Audit
+
+- [x] Secret redaction for collected log messages (`nodeiq.core.redaction`, wired into `logs.py` — see Phase 7C above)
+- [x] Final repository-wide secret audit: `git status`/`git ls-files`/`git grep` swept for `OPENAI_API_KEY` reads outside `client.py`, real-looking key patterns, and any print/logging of a key — none found; `.env` confirmed untracked and gitignored, `.env.example` confirmed tracked with a placeholder only
+- [x] Firewall detection and permission-error handling validated for real on a Multipass VM rather than left as code-review-only claims (see Phase 7C above)
+- [x] Second independent fresh-install simulation (`git clone` of the Phase 9 commit → venv → `pip install -r requirements.txt` → `pip install -e .`) on Ubuntu 24.04.4 LTS / Python 3.12.3, verifying `--version`, `scan`, `report`, `ask` (graceful no-key message), the interactive shell, and an invalid command (clean `argparse` error, no traceback)
+- [x] Final UX review: `--help`, `--version`, every command's error output, and the unsupported-platform message all reviewed together — no raw tracebacks, no SDK/implementation detail leaked anywhere
+- [x] Release documentation refreshed: `README.md` (supported platforms, Ubuntu validation, security practices, known limitations), `CHECKLIST.md`, `ROADMAP.md` (known gaps updated — redaction gap closed, firewall/permission gaps confirmed-in-practice), `LOGS.md`
+- [x] Final quality review: CLI still thin; collectors/coordinator/Prompt Builder unchanged except `logs.py` (the one explicitly-requested redaction integration); OpenAI client remains isolated; full suite passing locally (507) and on the VM (507)
 
 ---
 

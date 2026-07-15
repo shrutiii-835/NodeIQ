@@ -3656,3 +3656,166 @@ completion, not the network path to get it.
   `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
   Section 6 clarifying note (optional); Multipass setup docs in
   `README.md`.
+
+---
+
+## 2026-07-16 — Phase 6D: AI Integration (`nodeiq ask` is now real)
+
+**Task**
+
+Connect the already-built pieces — snapshot loading, the Summary
+Engine, the Prompt Builder, the OpenAI Client, and the CLI placeholder
+— into a fully working `nodeiq ask`. No redesign, no rewriting existing
+modules: `question -> load latest snapshot -> summarize -> build
+prompt -> OpenAI client -> print answer`.
+
+**Files created**
+
+- `src/nodeiq/llm/ask.py` — `answer_question(question, snapshot_path=None)
+  -> str`, the single backend orchestration function: loads a snapshot
+  (`load_snapshot(snapshot_path)` if given, otherwise
+  `load_latest_snapshot()`), summarizes it, builds a prompt from the
+  question and that Summary, sends it to OpenAI, and returns the answer
+  text unchanged. Adds no error handling of its own — every exception
+  `nodeiq.core.snapshot`/`nodeiq.llm.client` can already raise
+  propagates through unmodified, exactly like `nodeiq.cli.main._cmd_report`
+  already lets `SnapshotError` propagate up to be handled at the CLI
+  boundary, not inside the pipeline itself.
+- `tests/llm/test_ask.py` — 12 tests: a successful answer returned
+  unchanged; the default path loading the latest snapshot; an explicit
+  `snapshot_path` used instead; a missing snapshot, a malformed
+  snapshot, a missing API key, an authentication failure, and a timeout
+  all propagating their original exception type unmodified; the
+  question passed to `build_prompt()` verbatim; a Summary (not the raw
+  snapshot) passed as evidence; `build_prompt()`'s output sent to
+  `ask_openai()` unmodified; and the returned answer never reformatted
+  or trimmed.
+
+**Files modified**
+
+- `src/nodeiq/cli/main.py` — `ask`'s subparser now takes a required
+  `question` positional (previously optional, since the placeholder
+  never used it) and an optional `--snapshot PATH` flag, mirroring
+  `report`'s own flag naming. `_cmd_ask` now calls `answer_question()`
+  inside a `try`/`except` boundary: `SnapshotError` → a message
+  matching this task's exact requested wording ("No snapshot found: ...
+  Run: nodeiq scan and try again.", exit `1`); any `LLMError` subclass
+  (covering missing/invalid key, authentication failure, timeout, rate
+  limit, connection failure, and server failure all at once, since
+  every one of them already carries its own clear, safe message from
+  Phase 6C) → `"Could not get an answer: <message>"` (exit `3` — the
+  code reserved for exactly this since `docs/cli_design.md` was
+  written); any other exception → a generic clean message (exit `4`).
+  `_ASK_PLACEHOLDER_MESSAGE` and the old placeholder body were removed.
+- `tests/cli/test_main.py` — replaced the placeholder-era `ask` tests
+  with tests against the real pipeline (mocking `answer_question`
+  itself, the same seam `_cmd_report`'s own tests already use for
+  `load_latest_snapshot`/`load_snapshot`): a successful answer printed;
+  question and `--snapshot` both passed through to `answer_question()`
+  correctly; missing/malformed snapshot, missing API key, and
+  authentication failure each producing the right message and exit
+  code; an unexpected exception producing a generic message and exit
+  `4`; `ask` with no question now correctly rejected by `argparse`
+  itself as an invalid argument (it's a required positional now, not
+  optional).
+- `CHECKLIST.md` — completed "Phase 6D — AI Integration" (7 tasks
+  checked) — **this completes Phase 6 (LLM Integration) in full**.
+  Progress Summary updated to 167/179 (~93%).
+
+**Reasoning**
+
+`answer_question()` exists specifically so the CLI never orchestrates
+the four-step pipeline itself — `_cmd_ask` is now exactly as thin as
+`_cmd_scan`/`_cmd_report` already are: call one function, translate
+whatever it might raise into a clean message and exit code, print the
+result. This mirrors the CLI's own established pattern rather than
+introducing a new one — `_cmd_report` already lets `SnapshotError`
+propagate up from `load_snapshot()`/`load_latest_snapshot()` to be
+handled at exactly this boundary, and `_cmd_ask` now does the identical
+thing for both `SnapshotError` and the entire `LLMError` hierarchy.
+
+Catching the single base class `LLMError` (rather than each of its 7
+subclasses individually) in the CLI is a deliberate simplification, not
+a loss of precision: every subclass's own message, written in Phase
+6C, is already specific and user-facing on its own ("OpenAI rejected
+the configured API key.", "OPENAI_API_KEY is not configured. Create a
+`.env` file or export the environment variable.", etc.) — the CLI adds
+one shared, thin "Could not get an answer: " prefix and one shared exit
+code, rather than duplicating seven near-identical `except` branches
+for no behavioral difference between them.
+
+**Important implementation notes**
+
+- **Manual end-to-end verification** (a real API key was already
+  configured in a local, gitignored `.env` file): ran
+  `python -m nodeiq ask --snapshot snapshots/sample_snapshot.json
+  "What operating system is this machine running?"` against a real,
+  previously-captured Ubuntu snapshot — received a real OpenAI answer:
+  *"According to the evidence, the machine is running Ubuntu 24.04.4
+  LTS."* — following the exact Fact-register phrasing
+  `docs/prompt_builder_design.md` Section 10.4 specifies. Also ran the
+  default (latest-snapshot) path against a local macOS-collected
+  snapshot with `operating_system: null` — the model correctly answered
+  *"According to the evidence, the operating system is not specified,
+  as it is listed as null in the system evidence,"* a real, unscripted
+  confirmation that the "state insufficiency rather than guess"
+  guardrail (Section 10.3/10.4) holds up against a genuine language
+  model, not just in a mocked test. Verified graceful failure for: an
+  empty `snapshots/` directory (exit `1`, the exact requested
+  "No snapshot found... Run: nodeiq scan..." message); an invalid
+  `--snapshot` path (same); and a missing `OPENAI_API_KEY` (exit `3`,
+  "Could not get an answer: OPENAI_API_KEY is not configured...").
+- **Security review** (dedicated pass, before committing): `grep -rn
+  "OPENAI_API_KEY"` across the whole repository confirms every
+  occurrence is still legitimate (the one real read in `client.py`,
+  documentation, and test-only fake values) — no new read site was
+  introduced by `ask.py` or the CLI changes. `git diff --stat` confirms
+  `src/nodeiq/llm/prompt.py`, `src/nodeiq/llm/client.py`, and
+  `src/nodeiq/llm/exceptions.py` are byte-for-byte unchanged by this
+  phase. The API key never appears in any CLI output, exception
+  message, snapshot, or prompt — confirmed both by the existing Phase
+  6C test suite (still passing, untouched) and by direct manual
+  inspection of this phase's own new output.
+- **Quality review:** CLI remains thin (`_cmd_ask` is one call plus
+  exception translation, matching `_cmd_scan`/`_cmd_report`'s existing
+  shape exactly); no duplicated orchestration (the four-step pipeline
+  exists in exactly one place, `answer_question()`); no duplicated
+  prompt construction (`ask.py` calls `build_prompt()` once and never
+  touches prompt text itself); no hidden coupling (`ask.py` depends
+  only on the same public functions `nodeiq.cli.main` already imported
+  from `nodeiq.core.snapshot`/`nodeiq.summary`, plus
+  `nodeiq.llm.prompt`/`nodeiq.llm.client`'s own public functions). No
+  improvement was found worth making before committing.
+- Full local test suite: 404 passed, 10 skipped (386 prior + 12 new in
+  `test_ask.py`, plus `test_main.py`'s `ask`-related tests replaced
+  rather than added net-new).
+- Swept touched files' headings (`grep -n '^#'`) — clean, sequential,
+  Phase 6D correctly nested under Phase 6, which is now fully complete.
+
+**Future TODOs**
+
+- Phase 6A's eight open questions (`docs/prompt_builder_design.md`
+  Section 15) remain entirely open — none required resolving to wire
+  up a working `ask`, and none were resolved incidentally by doing so.
+- `docs/cli_design.md` Section 4.3's open question (exactly what
+  evidence `ask` hands to the LLM) is now answered in practice: the
+  Summary, not the raw snapshot — matching this document's own Section
+  11 lean that most question categories are well-served by the Summary
+  alone. Whether a future raw-snapshot path is ever added for the
+  question categories Section 11 flagged as needing it (Analysis,
+  parts of Explanation) remains open.
+- `docs/architecture.md` still needs the refresh flagged since Phase
+  5A — now further out of date still (predates `nodeiq.llm` entirely,
+  including its now-complete `ask` pipeline).
+- Still open from prior entries: the two recorded Refactoring
+  Opportunities from Phase 4.1B; field-naming/unit divergences across
+  `cpu_memory.py`/`processes.py`/`disk.py`/`network.py` vs.
+  `docs/snapshot_schema.md`; `docs/process_collector_design.md`'s
+  remaining Open Design Questions; per-process CPU utilization and
+  `top_by_cpu`; `docs/disk_collector.md`'s deferred `filesystem_type`;
+  deferred timestamp fields in `docs/logs_collector.md`/
+  `docs/scheduled_jobs_collector.md`; `PROJECT_RULES.md` Section 8
+  (Logging Philosophy) vs. ADR-013 reconciliation; `dataclasses` vs.
+  `TypedDict` decision for snapshot section shapes; `CONTEXT.md`
+  Section 6 clarifying note (optional); Multipass setup docs in
+  `README.md`.

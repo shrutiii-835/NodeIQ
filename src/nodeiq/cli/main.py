@@ -1,12 +1,16 @@
 """NodeIQ's command-line interface.
 
-Implements `docs/cli_design.md` exactly: `scan`, `report`, and a
-placeholder `ask`. This module is a thin orchestration layer only — it
-parses arguments and calls already-existing functions from
-`nodeiq.core.coordinator`, `nodeiq.core.snapshot`, `nodeiq.summary`, and
-`nodeiq.report` in the order the design doc specifies. It computes no
-status, formats no evidence, and makes no decision about what's
-noteworthy — every one of those already belongs to a lower layer.
+Implements `docs/cli_design.md` exactly: `scan`, `report`, and `ask`.
+This module is a thin orchestration layer only — it parses arguments
+and calls already-existing functions from `nodeiq.core.coordinator`,
+`nodeiq.core.snapshot`, `nodeiq.summary`, `nodeiq.report`, and
+`nodeiq.llm.ask` in the order each command's design specifies. It
+computes no status, formats no evidence, builds no prompt, and makes no
+decision about what's noteworthy — every one of those already belongs
+to a lower layer. `ask`'s entire pipeline (load a snapshot, summarize
+it, build a prompt, call OpenAI) is one call to
+`nodeiq.llm.ask.answer_question()` — this module never orchestrates
+those four steps itself.
 
 Reachable two ways (see docs/cli_design.md Section 3):
 
@@ -22,24 +26,18 @@ from pathlib import Path
 from nodeiq.core.coordinator import run_scan
 from nodeiq.core.exceptions import SnapshotError
 from nodeiq.core.snapshot import load_latest_snapshot, load_snapshot, save_snapshot
+from nodeiq.llm.ask import answer_question
+from nodeiq.llm.exceptions import LLMError
 from nodeiq.report import format_report
 from nodeiq.summary import summarize_snapshot
 
 # --- Exit codes (docs/cli_design.md Section 5, "Exit Code Summary") -------------
-#
-# 3 is reserved for "OpenAI/LLM unavailable" (ask only) — unused until
-# Phase 6 wires up a real `ask`.
 
 EXIT_OK = 0
 EXIT_NO_SNAPSHOT = 1
 EXIT_INVALID_ARGS = 2
+EXIT_LLM_UNAVAILABLE = 3
 EXIT_INTERNAL_FAILURE = 4
-
-_ASK_PLACEHOLDER_MESSAGE = (
-    "AI-powered question answering isn't implemented yet — it's coming in "
-    "Phase 6 (LLM Integration). For now, try `nodeiq report` for a summary "
-    "of the current system, or `nodeiq scan` to gather fresh data."
-)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,9 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     ask_parser = subparsers.add_parser(
-        "ask", help="Ask a natural-language question (Phase 6 — not yet implemented)."
+        "ask", help="Ask a natural-language question about the machine."
     )
-    ask_parser.add_argument("question", nargs="?", help="The question to ask.")
+    ask_parser.add_argument("question", help="The question to ask.")
+    ask_parser.add_argument(
+        "--snapshot", help="Answer using this snapshot file instead of the latest."
+    )
 
     return parser
 
@@ -149,11 +150,29 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _cmd_ask(_args: argparse.Namespace) -> int:
-    """`nodeiq ask`: placeholder only. Real LLM-backed question answering
-    arrives in Phase 6 — see docs/cli_design.md Section 4.3.
+def _cmd_ask(args: argparse.Namespace) -> int:
+    """`nodeiq ask`: load a snapshot (default: latest; `--snapshot PATH`:
+    a specific file), summarize it, build a prompt, and answer via
+    OpenAI — the entire pipeline is one call to
+    `nodeiq.llm.ask.answer_question()`. See docs/cli_design.md Section
+    4.3 and docs/prompt_builder_design.md.
     """
-    print(_ASK_PLACEHOLDER_MESSAGE)
+    try:
+        answer = answer_question(args.question, snapshot_path=args.snapshot)
+    except SnapshotError as exc:
+        print(
+            f"No snapshot found: {exc}\n\nRun:\n\n    nodeiq scan\n\nand try again.",
+            file=sys.stderr,
+        )
+        return EXIT_NO_SNAPSHOT
+    except LLMError as exc:
+        print(f"Could not get an answer: {exc}", file=sys.stderr)
+        return EXIT_LLM_UNAVAILABLE
+    except Exception as exc:
+        print(f"Could not complete ask: {exc}", file=sys.stderr)
+        return EXIT_INTERNAL_FAILURE
+
+    print(answer)
     return EXIT_OK
 
 

@@ -10,6 +10,7 @@ import pytest
 
 from nodeiq.cli import main as cli_main
 from nodeiq.core.exceptions import SnapshotError
+from nodeiq.llm.exceptions import LLMAuthenticationError, LLMConfigurationError
 
 
 def _fake_snapshot(**overrides) -> dict:
@@ -84,11 +85,18 @@ def test_parses_ask_with_question():
     args = cli_main.build_parser().parse_args(["ask", "what failed?"])
     assert args.command == "ask"
     assert args.question == "what failed?"
+    assert args.snapshot is None
 
 
-def test_parses_ask_without_question():
-    args = cli_main.build_parser().parse_args(["ask"])
-    assert args.question is None
+def test_parses_ask_with_snapshot_flag():
+    args = cli_main.build_parser().parse_args(["ask", "--snapshot", "some/path.json", "q"])
+    assert args.snapshot == "some/path.json"
+    assert args.question == "q"
+
+
+def test_ask_without_a_question_is_an_invalid_argument():
+    with pytest.raises(SystemExit):
+        cli_main.build_parser().parse_args(["ask"])
 
 
 def test_no_command_is_an_invalid_argument(capsys):
@@ -124,11 +132,13 @@ def test_main_dispatches_to_report(monkeypatch, capsys):
     assert "NodeIQ Report" in capsys.readouterr().out
 
 
-def test_main_dispatches_to_ask(capsys):
+def test_main_dispatches_to_ask(monkeypatch, capsys):
+    monkeypatch.setattr(cli_main, "answer_question", lambda q, snapshot_path=None: "the answer")
+
     exit_code = cli_main.main(["ask", "anything"])
 
     assert exit_code == cli_main.EXIT_OK
-    assert "Phase 6" in capsys.readouterr().out
+    assert "the answer" in capsys.readouterr().out
 
 
 # --- scan command ---------------------------------------------------------------------
@@ -280,27 +290,106 @@ def test_report_command_invalid_section(monkeypatch, capsys):
     assert "system" in err
 
 
-# --- ask placeholder ---------------------------------------------------------------------
+# --- ask command ---------------------------------------------------------------------
 
 
-def test_ask_command_with_question_prints_placeholder(capsys):
+def test_ask_command_prints_the_answer(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli_main, "answer_question", lambda q, snapshot_path=None: "Nothing has failed."
+    )
     args = cli_main.build_parser().parse_args(["ask", "is anything wrong?"])
 
     exit_code = cli_main._cmd_ask(args)
 
-    out = capsys.readouterr().out
     assert exit_code == cli_main.EXIT_OK
-    assert "Phase 6" in out
-    assert "is anything wrong?" not in out  # placeholder never echoes/answers the question
+    assert capsys.readouterr().out.strip() == "Nothing has failed."
 
 
-def test_ask_command_without_question_prints_placeholder(capsys):
-    args = cli_main.build_parser().parse_args(["ask"])
+def test_ask_command_passes_question_and_snapshot_path_through(monkeypatch):
+    seen = {}
+
+    def _fake_answer_question(question, snapshot_path=None):
+        seen["question"] = question
+        seen["snapshot_path"] = snapshot_path
+        return "ok"
+
+    monkeypatch.setattr(cli_main, "answer_question", _fake_answer_question)
+    args = cli_main.build_parser().parse_args(["ask", "--snapshot", "some/path.json", "q?"])
+
+    cli_main._cmd_ask(args)
+
+    assert seen == {"question": "q?", "snapshot_path": "some/path.json"}
+
+
+def test_ask_command_missing_snapshot(monkeypatch, capsys):
+    def _raise(question, snapshot_path=None):
+        raise SnapshotError("no snapshot files found in snapshots")
+
+    monkeypatch.setattr(cli_main, "answer_question", _raise)
+    args = cli_main.build_parser().parse_args(["ask", "q"])
 
     exit_code = cli_main._cmd_ask(args)
 
-    assert exit_code == cli_main.EXIT_OK
-    assert "Phase 6" in capsys.readouterr().out
+    err = capsys.readouterr().err
+    assert exit_code == cli_main.EXIT_NO_SNAPSHOT
+    assert "No snapshot found" in err
+    assert "nodeiq scan" in err
+
+
+def test_ask_command_malformed_snapshot(monkeypatch, capsys):
+    def _raise(question, snapshot_path=None):
+        raise SnapshotError(f"snapshot {snapshot_path} is not valid JSON")
+
+    monkeypatch.setattr(cli_main, "answer_question", _raise)
+    args = cli_main.build_parser().parse_args(["ask", "--snapshot", "bad.json", "q"])
+
+    exit_code = cli_main._cmd_ask(args)
+
+    assert exit_code == cli_main.EXIT_NO_SNAPSHOT
+    assert "not valid JSON" in capsys.readouterr().err
+
+
+def test_ask_command_missing_api_key(monkeypatch, capsys):
+    def _raise(question, snapshot_path=None):
+        raise LLMConfigurationError(
+            "OPENAI_API_KEY is not configured. Create a .env file or "
+            "export the environment variable."
+        )
+
+    monkeypatch.setattr(cli_main, "answer_question", _raise)
+    args = cli_main.build_parser().parse_args(["ask", "q"])
+
+    exit_code = cli_main._cmd_ask(args)
+
+    err = capsys.readouterr().err
+    assert exit_code == cli_main.EXIT_LLM_UNAVAILABLE
+    assert "OPENAI_API_KEY is not configured" in err
+
+
+def test_ask_command_authentication_failure(monkeypatch, capsys):
+    def _raise(question, snapshot_path=None):
+        raise LLMAuthenticationError("OpenAI rejected the configured API key.")
+
+    monkeypatch.setattr(cli_main, "answer_question", _raise)
+    args = cli_main.build_parser().parse_args(["ask", "q"])
+
+    exit_code = cli_main._cmd_ask(args)
+
+    assert exit_code == cli_main.EXIT_LLM_UNAVAILABLE
+    assert "OpenAI rejected the configured API key" in capsys.readouterr().err
+
+
+def test_ask_command_handles_unexpected_failure(monkeypatch, capsys):
+    def _raise(question, snapshot_path=None):
+        raise RuntimeError("something unexpected")
+
+    monkeypatch.setattr(cli_main, "answer_question", _raise)
+    args = cli_main.build_parser().parse_args(["ask", "q"])
+
+    exit_code = cli_main._cmd_ask(args)
+
+    assert exit_code == cli_main.EXIT_INTERNAL_FAILURE
+    assert "Could not complete ask" in capsys.readouterr().err
 
 
 # --- _scan_confirmation() (pure helper) ---------------------------------------------------

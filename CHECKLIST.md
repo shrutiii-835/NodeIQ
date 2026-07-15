@@ -10,11 +10,11 @@ stay listed (unchecked) until their phase is actually worked on.
 
 ## Progress Summary
 
-- **Current Phase:** Phase 6C — OpenAI Client (complete)
-- **Next Phase:** Phase 6D — CLI Wiring (real `nodeiq ask`), or a refactoring sprint for Phase 4.1B's recorded opportunities
-- **Overall Progress:** 160 / 173 tasks complete (~92%)
-- **Completed Tasks:** 160 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C)
-- **Remaining Tasks:** 13 (1 in Phase 2, all of Phase 6D, all of Phases 7–8)
+- **Current Phase:** Phase 6D — AI Integration (complete — Phase 6, LLM Integration, is now fully complete)
+- **Next Phase:** Phase 7 — Robustness, or a refactoring sprint for Phase 4.1B's recorded opportunities
+- **Overall Progress:** 167 / 179 tasks complete (~93%)
+- **Completed Tasks:** 167 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D)
+- **Remaining Tasks:** 12 (1 in Phase 2, all of Phases 7–8)
 
 > This summary must be updated by hand whenever tasks below are checked or
 > added, so it always matches the checkboxes further down this file.
@@ -258,9 +258,15 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Security review: confirmed `OPENAI_API_KEY` is read only in `client.py`, never logged/printed/serialized, `.env` is gitignored, `.env.example` contains only a placeholder, no real secret exists anywhere in the repository
 - [x] Quality review: no hidden coupling, no duplicated prompt logic, no OpenAI imports outside `nodeiq.llm`, no unnecessary complexity
 
-### Phase 6D — CLI Wiring
+### Phase 6D — AI Integration
 
-- [ ] Wire `ask` command to `build_prompt()` + `ask_openai()` (replacing today's placeholder)
+- [x] Implement `src/nodeiq/llm/ask.py`: `answer_question(question, snapshot_path=None) -> str`, the one backend orchestration function composing snapshot loading, `summarize_snapshot()`, `build_prompt()`, and `ask_openai()`
+- [x] Wire `nodeiq ask` to `answer_question()`, replacing the Phase 6A/6B/6C placeholder — `--snapshot PATH` supported, question now a required positional argument
+- [x] CLI-level error handling: `SnapshotError` → clean "no snapshot found, run `nodeiq scan`" message (exit 1); any `LLMError` → clean message (exit 3, the code reserved for this since Phase 5A); any other exception → generic clean message (exit 4) — never a raw traceback
+- [x] Unit tests (12 in `tests/llm/test_ask.py` + updated/added CLI tests in `tests/cli/test_main.py`) covering successful answers, latest/explicit snapshot loading, missing/malformed snapshot, missing API key, authentication failure, timeout, verbatim prompt/question/answer pass-through, and CLI integration
+- [x] Manual end-to-end verification: `nodeiq ask` against a real Ubuntu snapshot, with a real configured `OPENAI_API_KEY`, produced a correct, evidence-grounded, guardrail-compliant answer; graceful failure verified for missing snapshot, invalid `--snapshot` path, and missing API key
+- [x] Security review: `OPENAI_API_KEY` still read only in `client.py`; confirmed never appears in CLI output, exceptions, snapshots, or prompts; Prompt Builder and OpenAI Client both unchanged
+- [x] Quality review: CLI remains thin (one call to `answer_question()` plus exception translation, no orchestration duplicated), no duplicated prompt construction, no hidden coupling
 
 ## Phase 7 — Robustness
 

@@ -192,7 +192,9 @@ def test_read_process_returns_none_when_status_is_malformed(tmp_path, monkeypatc
 # --- _summarize ----------------------------------------------------------------
 
 
-def _proc(pid: int, memory_rss_bytes: int, state: str = "S") -> dict:
+def _proc(
+    pid: int, memory_rss_bytes: int, state: str = "S", cpu_usage_percent=None
+) -> dict:
     return {
         "pid": pid,
         "process_name": f"proc{pid}",
@@ -200,6 +202,7 @@ def _proc(pid: int, memory_rss_bytes: int, state: str = "S") -> dict:
         "owner": "root",
         "state": state,
         "command": f"proc{pid}",
+        "cpu_usage_percent": cpu_usage_percent,
     }
 
 
@@ -237,6 +240,7 @@ def test_summarize_handles_an_empty_process_list():
         "zombie_count": 0,
         "blocked_process_count": 0,
         "top_by_memory": [],
+        "top_by_cpu": [],
     }
 
 
@@ -248,6 +252,7 @@ def _context() -> CollectorContext:
 
 
 def test_collect_summarizes_every_discovered_process(monkeypatch):
+    monkeypatch.setattr(processes.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(processes, "_discover_pids", lambda: [1, 2, 3])
     fake_processes = {
         1: _proc(1, 1000, state="S"),
@@ -267,6 +272,7 @@ def test_collect_summarizes_every_discovered_process(monkeypatch):
 
 
 def test_collect_skips_processes_that_disappear_mid_scan(monkeypatch):
+    monkeypatch.setattr(processes.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(processes, "_discover_pids", lambda: [1, 2, 3])
 
     def _fake_read(pid):
@@ -295,7 +301,129 @@ def test_collect_reports_an_error_when_proc_cannot_be_listed_at_all(monkeypatch)
         "zombie_count": None,
         "blocked_process_count": None,
         "top_by_memory": None,
+        "top_by_cpu": None,
     }
     assert len(result.errors) == 1
     assert result.errors[0]["severity"] == "error"
     assert result.success is False
+
+
+# --- _parse_stat_cpu_time --------------------------------------------------------
+
+
+def test_parse_stat_cpu_time_extracts_utime_plus_stime():
+    # fields after the last ')': state ppid pgrp session tty_nr tpgid flags
+    # minflt cminflt majflt cmajflt utime stime ...
+    raw = "123 (my proc) S 1 1 1 0 -1 0 0 0 0 0 1000 500 0 0 20 0 1 0"
+    assert processes._parse_stat_cpu_time(raw) == 1500
+
+
+def test_parse_stat_cpu_time_handles_parens_and_spaces_in_comm():
+    raw = "123 (weird (name) proc) S 1 1 1 0 -1 0 0 0 0 0 200 300 0 0 20 0 1 0"
+    assert processes._parse_stat_cpu_time(raw) == 500
+
+
+def test_parse_stat_cpu_time_raises_when_no_closing_paren():
+    with pytest.raises(ValueError):
+        processes._parse_stat_cpu_time("123 no-parens-here at all")
+
+
+def test_parse_stat_cpu_time_raises_on_too_few_fields():
+    with pytest.raises(ValueError):
+        processes._parse_stat_cpu_time("123 (proc) S 1 1")
+
+
+def test_parse_stat_cpu_time_raises_on_non_numeric_utime():
+    raw = "123 (proc) S 1 1 1 0 -1 0 0 0 0 0 not-a-number 500 0 0 20 0 1 0"
+    with pytest.raises(ValueError):
+        processes._parse_stat_cpu_time(raw)
+
+
+# --- _compute_process_cpu_percent -----------------------------------------------
+
+
+def test_compute_process_cpu_percent_half_a_core():
+    # 10 ticks over 0.2s at 100 ticks/sec = 0.1s of CPU time / 0.2s wall = 50%
+    assert processes._compute_process_cpu_percent(10, 0.2) == 50.0
+
+
+def test_compute_process_cpu_percent_can_exceed_100_for_multiple_cores():
+    assert processes._compute_process_cpu_percent(40, 0.2) == 200.0
+
+
+def test_compute_process_cpu_percent_returns_zero_for_zero_elapsed_time():
+    assert processes._compute_process_cpu_percent(10, 0.0) == 0.0
+
+
+# --- _read_process_cpu_times -----------------------------------------------------
+
+
+def test_read_process_cpu_times_reads_configured_proc_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(processes, "_PROC_ROOT", tmp_path)
+    proc_dir = tmp_path / "42"
+    proc_dir.mkdir()
+    (proc_dir / "stat").write_text(
+        "42 (proc) S 1 1 1 0 -1 0 0 0 0 0 1000 500 0 0 20 0 1 0"
+    )
+
+    result = processes._read_process_cpu_times([42])
+
+    assert result == {42: 1500}
+
+
+def test_read_process_cpu_times_skips_missing_pids(tmp_path, monkeypatch):
+    monkeypatch.setattr(processes, "_PROC_ROOT", tmp_path)
+
+    result = processes._read_process_cpu_times([999])
+
+    assert result == {}
+
+
+# --- _attach_cpu_usage_percent ---------------------------------------------------
+
+
+def test_attach_cpu_usage_percent_computes_from_two_samples():
+    entries = [_proc(1, 1000), _proc(2, 2000)]
+
+    processes._attach_cpu_usage_percent(
+        entries, first_cpu_times={1: 100, 2: 200}, second_cpu_times={1: 110, 2: 240}, elapsed_seconds=0.2
+    )
+
+    assert entries[0]["cpu_usage_percent"] == 50.0
+    assert entries[1]["cpu_usage_percent"] == 200.0
+
+
+def test_attach_cpu_usage_percent_is_none_when_pid_missing_from_a_sample():
+    entries = [_proc(1, 1000)]
+
+    processes._attach_cpu_usage_percent(
+        entries, first_cpu_times={}, second_cpu_times={1: 110}, elapsed_seconds=0.2
+    )
+
+    assert entries[0]["cpu_usage_percent"] is None
+
+
+# --- top_by_cpu in _summarize() --------------------------------------------------
+
+
+def test_summarize_top_by_cpu_is_sorted_descending_and_capped_at_ten():
+    entries = [_proc(pid, 100, cpu_usage_percent=float(pid)) for pid in range(1, 16)]
+
+    result = processes._summarize(entries)
+
+    assert len(result["top_by_cpu"]) == 10
+    cpu_values = [p["cpu_usage_percent"] for p in result["top_by_cpu"]]
+    assert cpu_values == sorted(cpu_values, reverse=True)
+    assert result["top_by_cpu"][0]["pid"] == 15
+
+
+def test_summarize_top_by_cpu_handles_none_values_gracefully():
+    entries = [
+        _proc(1, 100, cpu_usage_percent=None),
+        _proc(2, 100, cpu_usage_percent=5.0),
+        _proc(3, 100, cpu_usage_percent=None),
+    ]
+
+    result = processes._summarize(entries)
+
+    assert result["top_by_cpu"][0]["pid"] == 2

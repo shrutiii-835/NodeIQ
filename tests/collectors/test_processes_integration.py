@@ -47,3 +47,11 @@ def test_collect_produces_a_sane_summary_on_a_real_linux_system():
         assert isinstance(entry["owner"], str)
         assert isinstance(entry["state"], str)
         assert isinstance(entry["command"], str)
+        assert entry["cpu_usage_percent"] is None or isinstance(
+            entry["cpu_usage_percent"], float
+        )
+
+    top_by_cpu = data["top_by_cpu"]
+    assert len(top_by_cpu) <= 10
+    cpu_values = [p["cpu_usage_percent"] for p in top_by_cpu if p["cpu_usage_percent"] is not None]
+    assert cpu_values == sorted(cpu_values, reverse=True)

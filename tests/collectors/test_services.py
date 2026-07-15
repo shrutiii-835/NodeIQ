@@ -61,6 +61,16 @@ def test_summarize_services_counts_running_and_failed():
     assert result["failed_services"][0]["name"] == "cron.service"
 
 
+def test_summarize_services_lists_running_service_names():
+    units = services._parse_service_units(_SAMPLE_LIST_UNITS)
+
+    result = services._summarize_services(units)
+
+    assert len(result["running_services"]) == result["running_services_count"]
+    names = {unit["name"] for unit in result["running_services"]}
+    assert "cron.service" not in names  # cron.service is failed, not running
+
+
 def test_summarize_services_detects_restarting_services():
     units = [
         {
@@ -84,6 +94,7 @@ def test_summarize_services_handles_no_services():
     assert result == {
         "running_services_count": 0,
         "failed_services_count": 0,
+        "running_services": [],
         "failed_services": [],
         "restarting_services": [],
     }
@@ -179,6 +190,7 @@ def test_collect_reports_systemd_unavailable_when_systemctl_is_missing(monkeypat
         "running_services_count": None,
         "failed_services_count": None,
         "enabled_services_count": None,
+        "running_services": [],
         "failed_services": [],
         "restarting_services": [],
     }

@@ -66,6 +66,12 @@ _MAX_NAMED_ITEMS = 5
 a concern will list before summarizing the rest as "and N more" — keeps
 `concerns` readable even if an unusually large number of items match."""
 
+_MAX_TOP_PROCESSES_IN_EVIDENCE = 10
+"""How many entries `top_processes_by_memory`/`top_processes_by_cpu`
+include in evidence — matches `processes.py`'s own `_TOP_N` exactly, so
+a question like "top 10 processes" can be fully answered from evidence
+rather than truncated a second time at this layer."""
+
 
 def summarize_snapshot(snapshot: dict) -> dict:
     """Turn a raw snapshot into one Summary: scan-level bookkeeping plus
@@ -334,11 +340,19 @@ def _summarize_processes(data: dict, errors: list) -> dict:
     (state `D`) against fixed thresholds — the two fields
     docs/process_collector_design.md identifies as operationally
     significant on their own, unlike raw process counts.
+
+    `evidence` includes up to `_MAX_TOP_PROCESSES_IN_EVIDENCE` processes
+    each from `top_by_memory`/`top_by_cpu` (trimmed to just
+    `process_name` plus the one relevant figure) — enough for `ask` to
+    answer "top N processes" or "which process uses the most CPU/memory"
+    without duplicating the collector's full per-process detail (pid,
+    owner, command, state) that isn't needed to answer those questions.
     """
     process_count = data.get("process_count")
     zombie_count = data.get("zombie_count")
     blocked_process_count = data.get("blocked_process_count")
     top_by_memory = data.get("top_by_memory") or []
+    top_by_cpu = data.get("top_by_cpu") or []
 
     concerns = []
     has_critical = False
@@ -395,11 +409,32 @@ def _summarize_processes(data: dict, errors: list) -> dict:
             f"Top memory consumer: {top.get('process_name')} "
             f"({_format_bytes(top.get('memory_rss_bytes'))})"
         )
+    top_cpu_with_data = [p for p in top_by_cpu if p.get("cpu_usage_percent") is not None]
+    if top_cpu_with_data:
+        top_cpu = top_cpu_with_data[0]
+        highlights.append(
+            f"Top CPU consumer: {top_cpu.get('process_name')} "
+            f"({top_cpu.get('cpu_usage_percent'):.1f}%)"
+        )
 
     evidence = {
         "process_count": process_count,
         "zombie_count": zombie_count,
         "blocked_process_count": blocked_process_count,
+        "top_processes_by_memory": [
+            {
+                "process_name": p.get("process_name"),
+                "memory": _format_bytes(p.get("memory_rss_bytes")),
+            }
+            for p in top_by_memory[:_MAX_TOP_PROCESSES_IN_EVIDENCE]
+        ],
+        "top_processes_by_cpu": [
+            {
+                "process_name": p.get("process_name"),
+                "cpu_usage_percent": p.get("cpu_usage_percent"),
+            }
+            for p in top_cpu_with_data[:_MAX_TOP_PROCESSES_IN_EVIDENCE]
+        ],
     }
 
     return {
@@ -499,6 +534,11 @@ def _summarize_services(data: dict, errors: list) -> dict:
     status is driven by `failed_services_count` against fixed
     thresholds, with any currently-restarting services surfaced as at
     least a warning.
+
+    Running service names are surfaced as a highlight (via
+    `_join_names`'s existing "and N more" cap) so `ask` can name
+    specific active services, without the highlight growing unbounded
+    on a system with hundreds of services.
     """
     if not data.get("systemd_available"):
         return {
@@ -513,6 +553,7 @@ def _summarize_services(data: dict, errors: list) -> dict:
 
     running_services_count = data.get("running_services_count")
     failed_services_count = data.get("failed_services_count")
+    running_services = data.get("running_services") or []
     failed_services = data.get("failed_services") or []
     restarting_services = data.get("restarting_services") or []
 
@@ -550,6 +591,10 @@ def _summarize_services(data: dict, errors: list) -> dict:
         else "Service information unavailable"
     )
 
+    highlights = []
+    if running_services:
+        highlights.append(f"Running: {_join_names([s['name'] for s in running_services])}")
+
     evidence = {
         "running_services_count": running_services_count,
         "failed_services_count": failed_services_count,
@@ -560,7 +605,7 @@ def _summarize_services(data: dict, errors: list) -> dict:
         "available": True,
         "status": status,
         "headline": headline,
-        "highlights": [],
+        "highlights": highlights,
         "concerns": concerns,
         "evidence": evidence,
         "errors": errors,

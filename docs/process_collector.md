@@ -26,18 +26,23 @@ diverges from — see "A Note on Naming and Schema Alignment" below).
 
 ## Responsibilities
 
-The Process Collector answers "what is consuming memory?" and "is
-anything stuck?" at the process level — directly supporting NodeIQ's
-headline example question about memory, plus giving early evidence
-toward CPU-related questions once per-process CPU is eventually added.
-v1 gathers a **summary**, not a full per-process dump:
+The Process Collector answers "what is consuming memory?", "which
+process is using the most CPU?", and "is anything stuck?" at the
+process level. v1 gathers a **summary**, not a full per-process dump:
 
 - `process_count` — how many processes are currently running.
 - `zombie_count` — how many are in the `Z` (zombie) state.
 - `blocked_process_count` — how many are in the `D` (uninterruptible
   sleep) state.
 - `top_by_memory` — the top 10 processes by RSS memory, each with `pid`,
-  `process_name`, `memory_rss_bytes`, `owner`, `state`, and `command`.
+  `process_name`, `memory_rss_bytes`, `owner`, `state`, `command`, and
+  `cpu_usage_percent`.
+- `top_by_cpu` — the same 10 fields, sorted by `cpu_usage_percent`
+  instead. `cpu_usage_percent` (added post-v1, by user request — see
+  `LOGS.md`) is computed the same way `cpu_memory.py`'s system-wide
+  figure is: two samples of `/proc/<pid>/stat`'s `utime`/`stime`,
+  `_CPU_SAMPLE_INTERVAL_SECONDS` apart, as a percentage of one core
+  (so a process fully using two cores reports 200%, matching `top`).
 
 Every process on the system is read once per scan to compute these
 counts and rankings, but only the top 10 (plus the three counts) are
@@ -79,12 +84,12 @@ version. This is the same reasoning already applied to `system.py`'s
 `/proc/meminfo`/`/proc/loadavg` choices, and is a standing rule in
 `PROJECT_RULES.md` Section 9 (item 7).
 
-## Why `stat` Was Intentionally Deferred
+## `stat` and Per-Process CPU Usage (added post-v1)
 
 `/proc/<pid>/stat` reports much of the same core information as
 `status` (state, PPid), plus CPU-time counters (`utime`, `stime`) in one
-dense, positional, space-separated line — but two things make it a worse
-starting point than `status` for v1:
+dense, positional, space-separated line. It was intentionally **not**
+parsed in the original v1 implementation, for two reasons:
 
 1. **Positional parsing is fragile in a way `status` isn't.** `status`
    names every field (`State:`, `VmRSS:`, `Uid:`), so a parser reads a
@@ -92,23 +97,23 @@ starting point than `status` for v1:
    their position in the line — the process name (field 2) is
    parenthesized specifically because it can itself contain spaces or
    even close-parens, making correct positional parsing genuinely
-   trickier than reading a named field.
-2. **`stat`'s main additional value — CPU time — isn't usable yet.**
-   `utime`/`stime` are cumulative counters, not a point-in-time
-   percentage. Computing "this process is using N% CPU" requires taking
-   two readings a short interval apart and computing the difference —
-   the exact same strategy `cpu_memory.py` already deferred for
-   system-wide CPU utilization (see `docs/cpu_memory_collector.md`,
-   "Fields Not Yet Collected"). Parsing `stat` now, without that
-   two-reading machinery, would add parsing complexity for numbers this
-   collector can't yet turn into anything useful.
+   trickier than reading a named field. (`_parse_stat_cpu_time()` now
+   handles this by locating the *last* `)` in the line and treating
+   everything after it as fixed-position.)
+2. **`stat`'s main additional value — CPU time — wasn't usable without
+   a second sample.** `utime`/`stime` are cumulative counters, not a
+   point-in-time percentage — computing "this process is using N% CPU"
+   requires two readings a short interval apart and the difference
+   between them, the same strategy `cpu_memory.py` uses for system-wide
+   CPU usage.
 
-Everything this v1 Process Collector actually needs (`state`, RSS
-memory, owner, name, command) is available from `status`, `comm`, and
-`cmdline` alone — so `stat` is left for whenever per-process CPU
-utilization is actually implemented, consistent with
-`docs/process_collector_design.md`'s own recommendation to defer
-per-process CPU alongside `cpu_memory.py`'s deferred system-wide CPU.
+Both were resolved once the user reported that questions like "which
+process is using the most CPU?" always came back "insufficient
+evidence" — `stat` is now read twice per scan (once before, once after
+the same `_CPU_SAMPLE_INTERVAL_SECONDS` pause `cpu_memory.py` uses),
+and each process's `cpu_usage_percent` is computed from the delta. This
+is a real, deliberate feature addition (not a bug fix to existing
+behavior) — see `LOGS.md` for the full record.
 
 ---
 
@@ -262,8 +267,8 @@ rather than silently changed either direction.
 - [x] Kernel-thread edge cases (`VmRSS` absent, `cmdline` empty) degrade gracefully to `0`/`""` rather than raising.
 - [x] `owner` resolution degrades gracefully to the raw UID string when no username can be resolved.
 - [x] No unnecessary intermediate data is kept — only the six fields needed for the summary are read per process; no `maps`, `environ`, `fd`, `mem`, `io`, or `task/` data is ever touched (see `docs/process_collector_design.md` Section 4).
-- [x] Sends only a summary onward (`process_count`, `zombie_count`, `blocked_process_count`, top 10 by memory) — never every process's data, per `docs/process_collector_design.md` Section 8.
+- [x] Sends only a summary onward (`process_count`, `zombie_count`, `blocked_process_count`, top 10 by memory, top 10 by CPU) — never every process's data, per `docs/process_collector_design.md` Section 8.
 - [x] Field names use `snake_case`; no collector-invented redaction, logging, retries, or presentation logic.
 - [x] Unit tests cover parsing, discovery, per-process reading (including disappearance and malformed data), summarization, and `collect()` end-to-end; an integration test verifies real behavior on the Multipass VM.
-- [ ] *(Deferred, not yet reconciled)* Field names/units and `memory_percent`/`top_by_cpu` fully match `docs/snapshot_schema.md`'s original `processes` section — see "A Note on Naming and Schema Alignment" above.
-- [ ] *(Deferred, per design)* `/proc/<pid>/stat` and per-process CPU utilization — see "Why `stat` Was Intentionally Deferred" above.
+- [ ] *(Deferred, not yet reconciled)* Field names/units fully match `docs/snapshot_schema.md`'s original `processes` section — see "A Note on Naming and Schema Alignment" above.
+- [x] Per-process CPU utilization (`top_by_cpu`) — implemented post-v1; see "`stat` and Per-Process CPU Usage" above.

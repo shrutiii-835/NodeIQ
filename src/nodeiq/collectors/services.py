@@ -63,6 +63,7 @@ def collect(context: CollectorContext) -> CollectorResult:
                 "running_services_count": None,
                 "failed_services_count": None,
                 "enabled_services_count": None,
+                "running_services": [],
                 "failed_services": [],
                 "restarting_services": [],
             },
@@ -135,15 +136,16 @@ def _summarize_services(units: list[dict]) -> dict:
     from `list-units` alone — `enabled_services_count`, which needs the
     second command, is computed separately in `collect()`).
     """
+    running_services = [unit for unit in units if unit["active_state"] == "active"]
     failed_services = [unit for unit in units if unit["active_state"] == "failed"]
     restarting_services = [
         unit for unit in units if unit["sub_state"] == _RESTARTING_SUB_STATE
     ]
-    running_services_count = sum(1 for unit in units if unit["active_state"] == "active")
 
     return {
-        "running_services_count": running_services_count,
+        "running_services_count": len(running_services),
         "failed_services_count": len(failed_services),
+        "running_services": running_services,
         "failed_services": failed_services,
         "restarting_services": restarting_services,
     }

@@ -447,6 +447,81 @@ def test_processes_highlight_names_the_top_memory_consumer():
     assert "1.0 MB" in result["highlights"][0]
 
 
+def test_processes_highlight_names_the_top_cpu_consumer():
+    result = summary._summarize_processes(
+        {
+            "process_count": 1,
+            "zombie_count": 0,
+            "blocked_process_count": 0,
+            "top_by_cpu": [{"process_name": "nodeiq", "cpu_usage_percent": 42.5}],
+        },
+        [],
+    )
+    assert any("nodeiq" in h and "42.5%" in h for h in result["highlights"])
+
+
+def test_processes_evidence_includes_top_processes_by_memory_and_cpu():
+    result = summary._summarize_processes(
+        {
+            "process_count": 2,
+            "zombie_count": 0,
+            "blocked_process_count": 0,
+            "top_by_memory": [
+                {"process_name": "sshd", "memory_rss_bytes": 1048576},
+                {"process_name": "nodeiq", "memory_rss_bytes": 524288},
+            ],
+            "top_by_cpu": [
+                {"process_name": "nodeiq", "cpu_usage_percent": 42.5},
+                {"process_name": "sshd", "cpu_usage_percent": None},
+            ],
+        },
+        [],
+    )
+    assert result["evidence"]["top_processes_by_memory"] == [
+        {"process_name": "sshd", "memory": "1.0 MB"},
+        {"process_name": "nodeiq", "memory": "512.0 KB"},
+    ]
+    assert result["evidence"]["top_processes_by_cpu"] == [
+        {"process_name": "nodeiq", "cpu_usage_percent": 42.5},
+    ]
+
+
+def test_processes_evidence_top_lists_capped_at_max_top_processes():
+    top_by_memory = [
+        {"process_name": f"proc{i}", "memory_rss_bytes": i} for i in range(15, 0, -1)
+    ]
+    result = summary._summarize_processes(
+        {"process_count": 15, "zombie_count": 0, "blocked_process_count": 0, "top_by_memory": top_by_memory},
+        [],
+    )
+    assert len(result["evidence"]["top_processes_by_memory"]) == summary._MAX_TOP_PROCESSES_IN_EVIDENCE
+
+
+def test_processes_evidence_top_processes_matches_collectors_own_top_n():
+    # The collector's own _TOP_N (processes.py) is 10 -- evidence should
+    # be able to include all of them, not truncate a second time.
+    top_by_memory = [{"process_name": f"proc{i}", "memory_rss_bytes": i} for i in range(10, 0, -1)]
+    result = summary._summarize_processes(
+        {"process_count": 10, "zombie_count": 0, "blocked_process_count": 0, "top_by_memory": top_by_memory},
+        [],
+    )
+    assert len(result["evidence"]["top_processes_by_memory"]) == 10
+
+
+def test_processes_no_cpu_highlight_when_no_cpu_data_available():
+    result = summary._summarize_processes(
+        {
+            "process_count": 1,
+            "zombie_count": 0,
+            "blocked_process_count": 0,
+            "top_by_cpu": [{"process_name": "sshd", "cpu_usage_percent": None}],
+        },
+        [],
+    )
+    assert not any("Top CPU consumer" in h for h in result["highlights"])
+    assert result["evidence"]["top_processes_by_cpu"] == []
+
+
 # --- disk status logic ---------------------------------------------------------------
 
 
@@ -492,6 +567,51 @@ def test_services_healthy_with_no_failures():
         [],
     )
     assert result["status"] == "healthy"
+
+
+def test_services_highlight_names_running_services():
+    result = summary._summarize_services(
+        {
+            "systemd_available": True,
+            "running_services_count": 2,
+            "failed_services_count": 0,
+            "running_services": [{"name": "cron.service"}, {"name": "ssh.service"}],
+            "failed_services": [],
+            "restarting_services": [],
+        },
+        [],
+    )
+    assert any("cron.service" in h and "ssh.service" in h for h in result["highlights"])
+
+
+def test_services_highlight_caps_running_service_names():
+    running = [{"name": f"svc{i}.service"} for i in range(20)]
+    result = summary._summarize_services(
+        {
+            "systemd_available": True,
+            "running_services_count": 20,
+            "failed_services_count": 0,
+            "running_services": running,
+            "failed_services": [],
+            "restarting_services": [],
+        },
+        [],
+    )
+    assert "and 15 more" in result["highlights"][0]
+
+
+def test_services_no_running_highlight_when_list_is_empty():
+    result = summary._summarize_services(
+        {
+            "systemd_available": True,
+            "running_services_count": 0,
+            "failed_services_count": 0,
+            "failed_services": [],
+            "restarting_services": [],
+        },
+        [],
+    )
+    assert result["highlights"] == []
 
 
 def test_services_critical_at_failed_critical_threshold():

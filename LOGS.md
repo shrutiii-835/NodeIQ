@@ -4292,3 +4292,56 @@ this only gives the model more real evidence to draw from. Other
 previously-deferred fields (per-process CPU%, `core_count`,
 `filesystem_type`, timer next/last-run) remain out of scope for this
 change; only the specific gap the user hit (CPU usage) was addressed.
+
+---
+
+## 2026-07-16 — Feature: per-process CPU, running service names, top-N processes
+
+**Task:** direct follow-up — user showed four more genuine questions
+still answering "insufficient evidence": current CPU usage (turned out
+to be a stale VM install, not a code issue — confirmed via `git log`
+on the VM showing the previous commit, not the just-pushed one), which
+services are active, top 10 processes, and which process uses the
+most CPU. The latter three were real, closeable gaps.
+
+**Files modified:**
+- `src/nodeiq/collectors/processes.py` — added `cpu_usage_percent` per
+  process and a new `top_by_cpu` list (same shape/cap as
+  `top_by_memory`), using the identical two-sample `/proc/<pid>/stat`
+  technique `cpu_memory.py` already uses system-wide. `_parse_stat_cpu_time()`
+  locates the last `)` in the line to safely skip the parenthesized,
+  space-containing `comm` field before reading `utime`/`stime`
+  positionally. A process missing from either sample gets `None`
+  (a real gap), not a fabricated `0.0`.
+- `src/nodeiq/collectors/services.py` — `_summarize_services` now also
+  returns `running_services` (the full per-service dicts for active
+  units) — previously computed and then discarded after counting.
+- `src/nodeiq/summary.py` — `_summarize_processes` now exposes up to
+  10 processes (matching the collector's own cap, not the smaller
+  `_MAX_NAMED_ITEMS=5` used for concern lists) in
+  `evidence.top_processes_by_memory`/`top_processes_by_cpu`, plus a
+  "Top CPU consumer" highlight. `_summarize_services` now surfaces a
+  capped, named list of running services as a highlight (via the
+  already-existing `_join_names` "and N more" pattern) instead of only
+  a count.
+- `docs/process_collector.md`, `CHECKLIST.md` updated.
+- Tests: 19 new in `tests/collectors/test_processes.py` (stat parsing,
+  the two-sample computation, `top_by_cpu` in `_summarize`), 2 new in
+  `tests/collectors/test_services.py`, 9 new in `tests/test_summary.py`;
+  integration tests for both collectors updated to assert the new
+  fields on real Linux.
+
+**Verified for real, against all four original questions** (real VM
+snapshot copied back locally — no secrets involved — real OpenAI
+calls with the local `.env` key): "current cpu usage" → correct
+percentage; "which services are active" → names specific running
+services, honestly caveats it's a partial list ("and 49 more") rather
+than claiming completeness; "top 10 processes" → lists all 10 by
+memory and all 10 by CPU; "most CPU" → names the actual top consumer
+with its percentage. Full suite: 544 passed locally; 553 passed on the
+Multipass VM.
+
+**Note on the "stale VM" issue:** confirmed via `multipass exec ...
+git log -1` that the VM was still on commit `e9c124f`, one behind the
+`a0d1d45` CPU-usage commit — the user hadn't pulled/reinstalled yet.
+Flagged this explicitly rather than assuming a new code bug.

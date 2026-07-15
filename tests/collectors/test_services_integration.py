@@ -32,5 +32,7 @@ def test_collect_produces_a_sane_summary_on_a_real_linux_system():
     assert result.data["running_services_count"] > 0
     assert result.data["failed_services_count"] >= 0
     assert result.data["enabled_services_count"] >= 0
+    assert isinstance(result.data["running_services"], list)
+    assert len(result.data["running_services"]) == result.data["running_services_count"]
     assert isinstance(result.data["failed_services"], list)
     assert isinstance(result.data["restarting_services"], list)

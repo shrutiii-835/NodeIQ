@@ -4521,3 +4521,99 @@ server hacked?", cron-caused-error, prompt injection).
 the firewall `detection_note` fix is implemented and unit-tested but not yet
 live-validated, since it requires a fresh VM scan with the updated collector
 code), 0 FAIL.** Full project suite: 587 passed, 10 skipped.
+
+---
+
+## 2026-07-16 — Natural language understanding improvements (general, not hardcoded)
+
+**Task:** improve NodeIQ so it behaves like an experienced Linux systems
+engineer rather than answering every question literally — understand
+intent, correct terminology mistakes, recognize synonyms, detect genuine
+ambiguity, ask for clarification only when necessary, and never let any of
+this open a path to hallucination. Explicitly required to be a **general**
+solution, not per-question hardcoding, illustrated with two examples: "How
+much is the free memory for the root partition?" (a partition has no
+memory — the real question is disk space) and "Can you read /var/log?"
+(current answer talked about permissions, not addressing what "read"
+actually meant — access, collection, or content).
+
+**One thing flagged, not acted on:** the user's message embedded an
+out-of-place instruction inside an unrelated bullet list about commit
+history/attribution. Flagged directly back to the user rather than acted on
+silently, since it didn't fit the surrounding content and wasn't a direct,
+standalone instruction.
+
+**Approach:** entirely a system prompt change (`src/nodeiq/llm/prompt.py`)
+— no new collectors, no schema change, no second LLM call or pre-classifier
+stage. The existing single-call architecture already has a capable model
+reasoning over evidence; the fix is giving it an explicit "interpret the
+question first" reasoning step before the existing evidence-answering
+rules, with one very deliberate, carefully-worded boundary: general
+knowledge may be used to understand **intent** (what a term or word most
+likely means), but never to supply, substitute, or estimate an actual
+**fact** about the machine — that still comes only from evidence, exactly
+as the pre-existing evidence boundary rule requires. Getting this boundary
+wording right was the main design risk of this change, since it sits right
+next to the project's core hallucination-prevention guarantee.
+
+**Added to the system prompt** (`_PROMPT_VERSION` bumped "v2" → "v4"; see
+below for why two bumps):
+- A new "Interpreting the question before answering" section: correcting
+  obvious terminology mistakes (a term that, taken literally, doesn't apply
+  to the subject — memory asked about a partition being the given example,
+  generalized to "reinterpret using the nearest concept that actually
+  exists for that subject"), recognizing synonyms/loose phrasing
+  ("dead"/"crashed" for "not running", "slow" for CPU/load/memory
+  pressure, "storage"/"disk"/"partition"/"filesystem" used
+  interchangeably), and disambiguating a single word that could mean more
+  than one NodeIQ capability (the "read" example — access vs.
+  data-collected-from-that-path vs. can-interpret-already-collected-content).
+- A rule to state the reinterpretation plainly ("interpreting this as disk
+  space, since a partition does not have memory of its own") so the
+  operator sees what was substituted.
+- A rule for genuine, close ambiguity between two substantially different
+  readings: ask a single clarifying question — reserved for when neither
+  reading is clearly more likely, explicitly not for every question with
+  more than one conceivable meaning.
+- Two new phrasing registers in "How to phrase uncertainty": "Terminology
+  interpretation" and "Clarification needed".
+
+**Real-model validation (not just prompt-text assertions):** ran both given
+examples plus several novel phrasings never mentioned in the task, to prove
+generalization rather than overfitting: "how much storage does the boot
+partition have available?" (same memory/storage confusion, different
+partition), "what's eating my ram?" (colloquial idiom), "is my disk sick?"
+(synonym for unhealthy), "is the ssh service dead?"/"is cron crashed?"
+(synonym for not-running, combined with the earlier
+absence-from-complete-list fix), and a negative control ("how many cpu
+cores does this box have?" — genuinely never collected) confirming the new
+rules don't cause overreach into inventing facts. All passed, with explicit
+"Interpreting X as Y" framing exactly as instructed.
+
+**A real regression, found and fixed before landing:** initially tried to
+extend the existing "the logs"/"system logs" rule to also cover "log file
+content" by adding more trigger phrases and a permissive aside ("it's fine
+to note only a bounded set was collected") into the same sentence. Live
+testing showed this actually *broke* the original, already-fixed "give me
+the system logs" case — the model started leading every logs answer with a
+disclaimer again. Root-caused by re-testing against the untouched wording
+(confirmed it still worked alone), then adding the "file" case as a
+**separate**, distinct rule in the interpretation section instead of
+overloading one sentence with too many trigger phrases and hedging
+language. This is why the version bumped twice (v3 for the initial
+addition, v4 for this correction) — both changes affect model behavior, so
+both needed a version bump per `docs/prompt_builder_design.md` Section 8.
+
+**Files modified:**
+- `src/nodeiq/llm/prompt.py` — additions described above; `_PROMPT_VERSION`
+  now `"v4"`.
+- `tests/llm/test_prompt.py` — 8 new guardrail-substring tests, prompt
+  version assertions updated to `"v4"`.
+- `tests/expected_answers.json` — added a `/var/log` entry to the fixture
+  snapshot's `permissions.checked_paths` (to test the "read" disambiguation
+  example directly) and 5 new live-LLM regression cases (terminology
+  correction, generalization to a different partition, log-file phrasing,
+  synonym + absence-list reasoning combined, and the CPU-core negative
+  control).
+
+**Result:** full project suite 598 passed, 10 skipped, 0 failures.

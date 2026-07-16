@@ -12,8 +12,8 @@ stay listed (unchecked) until their phase is actually worked on.
 
 - **Current Phase:** Phase 9 — Release Readiness & Final Security Audit (complete). **NodeIQ v1 is release-ready.**
 - **Next Phase:** None required for v1 — the only remaining unchecked items are a genuinely open design question (Phase 2) and optional demo prep (Phase 8), neither a release blocker
-- **Overall Progress:** 205 / 207 tasks complete (~99%)
-- **Completed Tasks:** 203 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A, all of Phase 7B, all 7 of 7 in Phase 7C, 3 of 4 in Phase 8, all of Phase 9, all of Post-Release UX Fixes, all of the 2026-07-16 QA Validation Cycle)
+- **Overall Progress:** 206 / 208 tasks complete (~99%)
+- **Completed Tasks:** 204 (all of Phase 1, 13 of 14 in Phase 2, all of Phase 3.1, all of Phase 3.2A, all of Phase 3.2B, all 9 of 9 in Phase 3.2C, all of Phase 3.4, all of Phase 3.5A, all of Phase 3.5B, all of Phase 3.6, all of Collector Sprint 1, all of Collector Sprint 2, all of Phase 3.7, all of Phase 3.8, all of Phase 4.1A, all of Phase 4.1B, all of Phase 4.2, all of Phase 5A, all of Phase 5B, all of Phase 6A, all of Phase 6B, all of Phase 6C, all of Phase 6D, all of Phase 7A, all of Phase 7B, all 7 of 7 in Phase 7C, 3 of 4 in Phase 8, all of Phase 9, all of Post-Release UX Fixes, all of the 2026-07-16 QA Validation Cycle, all of the 2026-07-16 Natural Language Understanding Improvements)
 - **Remaining Tasks:** 2 (1 in Phase 2 — dataclasses vs. TypedDict, a genuinely open design question; 1 in Phase 8 — demo prep, optional)
 
 > This summary must be updated by hand whenever tasks below are checked or
@@ -337,6 +337,16 @@ stay listed (unchecked) until their phase is actually worked on.
 - [x] Re-validated all fixes against the real model on the same real snapshot: 0 regressions, all 4 fully-fixable issues confirmed fixed
 - [x] Added `tests/test_questions.py`, `tests/expected_answers.json`, `tests/edge_cases.json` — an automated QA regression suite (normal cases, missing/corrupted snapshots, prompt injection, 6 live-LLM regression tests gated on `OPENAI_API_KEY`)
 - [x] Bumped `_PROMPT_VERSION` to `"v2"` (system prompt wording changed in a way that affects model behavior)
+
+## 2026-07-16 Natural Language Understanding Improvements
+
+- [x] Added an "Interpreting the question before answering" section to the system prompt: terminology-mistake correction (e.g. "memory" asked about a partition/filesystem, which has no memory of its own), synonym/loose-phrasing recognition ("dead"/"crashed" for "not running", "slow" for elevated CPU/load, "storage"/"disk"/"partition"/"filesystem" used interchangeably), and disambiguating a single word that could mean more than one NodeIQ capability (e.g. "read" a path — access vs. collected-vs-not vs. analyzable content)
+- [x] Added a "Clarification needed" phrasing register for genuine, close ambiguity between two substantially different readings — reserved for when interpretations are roughly equally plausible, not used when one reading is clearly more natural
+- [x] Explicitly bounded the new interpretation rules to intent only, never facts: "this interpretation step only ever changes what question you understand yourself to be answering — it never supplies, substitutes, or estimates an actual fact about the machine," re-anchoring to the existing evidence boundary rule
+- [x] Generalized the existing "logs"/"system logs" phrasing rule to also cover "the word 'file' does not automatically mean live disk access" (e.g. "log file content", "what's in the log file") — found via live-model generalization testing beyond the two given examples, not the original bug report
+- [x] Built entirely as a general system-prompt mechanism, not per-question hardcoding — verified by testing against novel phrasings never seen in the bug report ("how much storage does the boot partition have", "what's eating my ram", "is my disk sick", "is cron crashed") and a negative control (CPU core count, genuinely never collected) confirming no overreach into inventing facts
+- [x] Bumped `_PROMPT_VERSION` to `"v4"` (two behavior-affecting revisions during this change: v3 added the interpretation section, v4 fixed a regression in the logs paragraph found via live re-testing before landing)
+- [x] Added 5 new live-LLM regression cases to `tests/expected_answers.json`/`tests/test_questions.py` pinning the terminology-correction, absence-reasoning, and log-file-phrasing fixes, plus a negative control
 
 ---
 

@@ -2,10 +2,8 @@
 
 **Status: v1 complete and release-ready.** Every command described in this
 README is real, implemented, tested, and verified on a real Ubuntu 24.04.4
-LTS machine (Python 3.12.3) via a genuine fresh-clone install — see
-`CHECKLIST.md`'s Progress Summary for the exact task count and `LOGS.md`
-for the full development history, including the final security audit and
-release-validation results.
+LTS machine (Python 3.12.3) via a genuine fresh-clone install, including a
+final security audit and release-validation pass.
 
 **Supported platform:** Linux (validated on Ubuntu 24.04 LTS). Running
 `nodeiq` with no command on macOS or Windows detects this and explains
@@ -38,12 +36,14 @@ written documentation to stay consistent. Start here:
   architecture, snapshot and safety philosophy, design principles
 - [PROJECT_RULES.md](PROJECT_RULES.md) — permanent engineering standards:
   style, error handling, testing, git workflow, Definition of Done
-- [CHECKLIST.md](CHECKLIST.md) — phase-by-phase progress tracker
 - [DECISIONS.md](DECISIONS.md) — Architecture Decision Record (ADR log)
 - [ROADMAP.md](ROADMAP.md) — high-level milestones, current and future
 - [LEARNING_NOTES.md](LEARNING_NOTES.md) — beginner-friendly explanations of
   every concept introduced along the way
-- [LOGS.md](LOGS.md) — append-only development diary
+
+Two other working documents — a phase-by-phase progress checklist and an
+append-only development diary — are kept locally for day-to-day development
+but aren't part of the published repository.
 
 ---
 
@@ -168,8 +168,6 @@ NodeIQ/
 ├── README.md              # This file — public project documentation
 ├── CONTEXT.md              # Permanent project context and philosophy
 ├── PROJECT_RULES.md        # Engineering standards and conventions
-├── LOGS.md                 # Append-only development diary
-├── CHECKLIST.md            # Phase-by-phase progress tracker
 ├── DECISIONS.md            # Architecture Decision Record
 ├── ROADMAP.md              # High-level milestone view
 ├── requirements.txt        # Python dependencies
@@ -197,9 +195,7 @@ NodeIQ/
 
 ## Development Phases (all complete for v1)
 
-NodeIQ was built in strict, incremental phases — see
-[CHECKLIST.md](CHECKLIST.md) for the full task-by-task record and
-[LOGS.md](LOGS.md) for the complete development diary.
+NodeIQ was built in strict, incremental phases:
 
 1. **Project architecture** — repository structure and documentation
 2. **Data model** — the snapshot JSON schema
@@ -223,8 +219,8 @@ these phases, and [PROJECT_RULES.md](PROJECT_RULES.md) for coding standards.
 
 - Firewall-implementation variance (`ufw`/`nft`/`iptables`) and
   non-root permission handling are already handled gracefully in code
-  and were re-verified during release validation (see `LOGS.md`), but
-  haven't been exhaustively stress-tested across every distribution.
+  and were re-verified during release validation, but haven't been
+  exhaustively stress-tested across every distribution.
 - No demo script or slide deck exists — this README and a live
   walkthrough are the current "demo."
 - See `ROADMAP.md`'s "Known Gaps, Recorded Honestly" for the complete,
